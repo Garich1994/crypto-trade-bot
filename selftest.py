@@ -50,6 +50,7 @@ from agents.paper_agent import (
 from agents.paper_agent import set_db_path as set_paper_db
 from agents.risk_agent import check_risk
 from agents.scanner_agent import scan
+from agents.skeptic_agent import analyze_idea
 from agents.ta_agent import analyze
 from agents.whale_agent import LIQUIDATIONS_NOTE, analyze_whales
 from bot.formatting import (
@@ -69,6 +70,7 @@ from bot.formatting import (
     format_risk,
     format_scan,
     format_size,
+    format_skeptic,
     format_whales,
 )
 
@@ -615,6 +617,47 @@ def _check_whales(errors: list[str]) -> None:
         print("  --------------------------")
 
 
+def _check_skeptic(errors: list[str]) -> None:
+    """Скептик на мок-данных: идеальная 5/5, перекупленность и тесный стоп — FAIL."""
+    print("\n— Проверяю Скептика (мок-данные) …")
+    before = len(errors)
+
+    def _status(result, name):
+        for c in result["checks"]:
+            if c["name"] == name:
+                return c["status"]
+        return None
+
+    base = {
+        "price": 80000.0, "rsi": 55.0, "atr": 1000.0, "ema200": 75000.0,
+        "volume_ratio": 1.2, "support": 78000.0, "resistance": 85000.0,
+    }
+
+    # Идеальная идея -> 5/5.
+    ideal = analyze_idea("long", 80000, 78500, 83000, dict(base))
+    if ideal["passed"] != 5 or ideal["total"] != 5:
+        errors.append(f"skeptic: идеальная идея != 5/5 ({ideal['passed']}/{ideal['total']})")
+    _check_forbidden(format_skeptic({**ideal, "symbol": "BTCUSDT"}), "skeptic", errors)
+
+    # Лонг в перекупленности -> FAIL по RSI.
+    over = dict(base); over["rsi"] = 80.0
+    r_over = analyze_idea("long", 80000, 78500, 83000, over)
+    if _status(r_over, "RSI против направления") != "FAIL":
+        errors.append("skeptic: перекупленность не дала FAIL по RSI")
+
+    # Тесный стоп (0.5×ATR) -> FAIL по волатильности.
+    r_tight = analyze_idea("long", 80000, 79500, 83000, dict(base))
+    if _status(r_tight, "Стоп vs волатильность") != "FAIL":
+        errors.append("skeptic: тесный стоп не дал FAIL по ATR")
+
+    if len(errors) == before:
+        print(f"  {OK} идеальная 5/5, перекупленность и тесный стоп — FAIL")
+        print("  ----- превью ответа -----")
+        for line in format_skeptic({**ideal, "symbol": "BTCUSDT"}).splitlines():
+            print(f"  {line}")
+        print("  --------------------------")
+
+
 async def _run() -> int:
     pairs = [("BTCUSDT", "1h"), ("ETHUSDT", "1h")]
     errors: list[str] = []
@@ -650,6 +693,7 @@ async def _run() -> int:
     await _check_alerts(errors)
     await _check_paper(errors)
     _check_whales(errors)
+    _check_skeptic(errors)
 
     print()
     if errors:
