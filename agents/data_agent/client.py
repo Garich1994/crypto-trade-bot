@@ -177,6 +177,20 @@ async def get_ticker_24h(symbol: str) -> dict:
     return data
 
 
+async def get_agg_trades(symbol: str, limit: int = 1000) -> list[dict]:
+    """Агрегированные сделки (aggTrades) по паре — публично, без ключей.
+
+    Поля Binance: p (цена), q (объём), T (время, мс), m (buyer is maker).
+    Кэш TTL 60с не даёт долбить лимиты. Возвращает список последних сделок.
+    """
+    limit = max(1, min(int(limit), 1000))
+    params = {"symbol": symbol.upper(), "limit": limit}
+    data = await _request(SPOT_HOSTS, "/api/v3/aggTrades", params)
+    if not isinstance(data, list) or not data:
+        raise DataAgentError("Binance вернул пустой список сделок.")
+    return data
+
+
 async def get_all_tickers_24h() -> list[dict]:
     """24-часовая статистика по всем парам (для выбора вселенной сканером)."""
     data = await _request(SPOT_HOSTS, "/api/v3/ticker/24hr", {})
