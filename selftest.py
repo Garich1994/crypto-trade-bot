@@ -51,6 +51,7 @@ from agents.paper_agent import set_db_path as set_paper_db
 from agents.risk_agent import check_risk
 from agents.scanner_agent import scan
 from agents.ta_agent import analyze
+from agents.whale_agent import LIQUIDATIONS_NOTE, analyze_whales
 from bot.formatting import (
     DISCLAIMER,
     DISCLAIMER_BACKTEST,
@@ -68,6 +69,7 @@ from bot.formatting import (
     format_risk,
     format_scan,
     format_size,
+    format_whales,
 )
 
 OK = "\033[92m[OK]\033[0m"
@@ -570,6 +572,49 @@ async def _check_paper(errors: list[str]) -> None:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+def _check_whales(errors: list[str]) -> None:
+    """Киты на мок-aggTrades: порог, флаг m, топ-3, давление; честная заглушка."""
+    print("\n— Проверяю Whale Tracker (мок-aggTrades) …")
+    now = 1_000_000_000_000
+    trades = [
+        {"p": "80000", "q": "0.1", "T": now, "m": False},          # мелкая (8k) — отсечь порогом
+        {"p": "80000", "q": "5", "T": now, "m": False},            # кит-покупка 400k
+        {"p": "80000", "q": "4", "T": now, "m": True},             # кит-продажа 320k
+        {"p": "80000", "q": "10", "T": now, "m": False},           # кит-покупка 800k (крупнейшая)
+        {"p": "80000", "q": "5", "T": now - 20 * 60_000, "m": False},  # 400k, но вне окна 15м
+    ]
+    result = analyze_whales(trades, "BTCUSDT", now_ms=now)
+
+    before = len(errors)
+    if result["whale_count"] != 3:
+        errors.append(f"whales: whale_count != 3 ({result['whale_count']})")
+    if abs(result["buy_notional"] - 1_200_000) > 1e-6:
+        errors.append(f"whales: buy_notional != 1.2M ({result['buy_notional']})")
+    if abs(result["sell_notional"] - 320_000) > 1e-6:
+        errors.append(f"whales: sell_notional != 320k ({result['sell_notional']})")
+    if result["pressure"] != "покупки":
+        errors.append(f"whales: давление != покупки ({result['pressure']})")
+    top = result["top"]
+    if len(top) != 3 or abs(top[0]["notional"] - 800_000) > 1e-6:
+        errors.append(f"whales: топ-3 неверно отсортирован ({[t['notional'] for t in top]})")
+    if not any(t["side"] == "sell" for t in top):
+        errors.append("whales: флаг m не разделил buy/sell")
+
+    # Честная заглушка ликвидаций.
+    if "451" not in LIQUIDATIONS_NOTE or "недоступны" not in LIQUIDATIONS_NOTE.lower():
+        errors.append("whales: заглушка /liquidations не честная")
+
+    _check_forbidden(format_whales(result), "whales", errors)
+    _check_forbidden(LIQUIDATIONS_NOTE, "liquidations", errors)
+
+    if len(errors) == before:
+        print(f"  {OK} порог/флаг m/топ-3/давление ок; заглушка ликвидаций честная")
+        print("  ----- превью ответа -----")
+        for line in format_whales(result).splitlines():
+            print(f"  {line}")
+        print("  --------------------------")
+
+
 async def _run() -> int:
     pairs = [("BTCUSDT", "1h"), ("ETHUSDT", "1h")]
     errors: list[str] = []
@@ -604,6 +649,7 @@ async def _run() -> int:
     _check_journal(errors)
     await _check_alerts(errors)
     await _check_paper(errors)
+    _check_whales(errors)
 
     print()
     if errors:
