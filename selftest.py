@@ -16,9 +16,15 @@ for _stream in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
-from agents.data_agent import DataAgentError
+from agents.backtest_agent import BacktestError, backtest
+from agents.data_agent import DataAgentError, get_klines_history
 from agents.ta_agent import analyze
-from bot.formatting import DISCLAIMER, format_analysis
+from bot.formatting import (
+    DISCLAIMER,
+    DISCLAIMER_BACKTEST,
+    format_analysis,
+    format_backtest,
+)
 
 OK = "\033[92m[OK]\033[0m"
 FAIL = "\033[91m[X]\033[0m"
@@ -80,6 +86,61 @@ def _check_message(result: dict, errors: list[str]) -> str:
     return message
 
 
+async def _check_backtest(errors: list[str]) -> None:
+    """Прогон бэктеста на BTCUSDT 1h с реалистичными уровнями из истории."""
+    symbol, timeframe = "BTCUSDT", "1h"
+    print(f"\n— Проверяю бэктест {symbol} ({timeframe}) …")
+
+    # Уровни берём из самой истории, чтобы вход гарантированно касался цены.
+    try:
+        candles = await get_klines_history(symbol, timeframe, 5000)
+    except DataAgentError as exc:
+        errors.append(f"backtest {symbol}: история недоступна — {exc}")
+        print(f"  {FAIL} не удалось получить историю: {exc}")
+        return
+
+    lows = [float(c[3]) for c in candles]
+    highs = [float(c[2]) for c in candles]
+    lo, hi = min(lows), max(highs)
+    span = hi - lo
+    entry = (lo + hi) / 2            # середина диапазона — её цена проходит
+    stop = entry - span * 0.1
+    take = entry + span * 0.1
+
+    try:
+        result = await backtest(symbol, timeframe, "long", entry, stop, take)
+    except (BacktestError, DataAgentError) as exc:
+        errors.append(f"backtest {symbol}: {exc}")
+        print(f"  {FAIL} {exc}")
+        return
+
+    before = len(errors)
+    if not (isinstance(result.get("trades"), int) and result["trades"] > 0):
+        errors.append(f"backtest {symbol}: trades не > 0 ({result.get('trades')!r})")
+    wr = result.get("win_rate")
+    if not (_is_number(wr) and 0.0 <= wr <= 1.0):
+        errors.append(f"backtest {symbol}: win_rate вне [0,1] ({wr!r})")
+    if not _is_number(result.get("expectancy")):
+        errors.append(f"backtest {symbol}: expectancy не число ({result.get('expectancy')!r})")
+
+    message = format_backtest(result)
+    if not message.strip():
+        errors.append(f"backtest {symbol}: сообщение не сформировалось")
+    if DISCLAIMER_BACKTEST not in message:
+        errors.append(f"backtest {symbol}: нет дисклеймера")
+    low = message.lower()
+    for word in FORBIDDEN_WORDS:
+        if word in low:
+            errors.append(f"backtest {symbol}: запрещённое слово «{word}»")
+
+    if len(errors) == before:
+        print(f"  {OK} бэктест посчитан, сообщение сформировано")
+        print("  ----- превью ответа -----")
+        for line in message.splitlines():
+            print(f"  {line}")
+        print("  --------------------------")
+
+
 async def _run() -> int:
     pairs = [("BTCUSDT", "1h"), ("ETHUSDT", "1h")]
     errors: list[str] = []
@@ -103,6 +164,8 @@ async def _run() -> int:
             for line in message.splitlines():
                 print(f"  {line}")
             print("  --------------------------")
+
+    await _check_backtest(errors)
 
     print()
     if errors:
