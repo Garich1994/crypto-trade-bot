@@ -5,6 +5,11 @@
 from __future__ import annotations
 
 DISCLAIMER = "⚠️ Не финансовый совет. Это аналитика, решение — за тобой."
+DISCLAIMER_BACKTEST = (
+    "⚠️ Не финансовый совет. Прошлое не гарантирует будущего, решение — за тобой."
+)
+
+_SIDE_RU = {"long": "лонг", "short": "шорт"}
 
 
 def _fmt_price(value: float) -> str:
@@ -51,5 +56,33 @@ def format_analysis(result: dict) -> str:
         f"📦 Объём: {result['volume_state']}",
         "",
         DISCLAIMER,
+    ]
+    return "\n".join(lines)
+
+
+def format_backtest(result: dict) -> str:
+    """Собрать текст ответа на /backtest из словаря Backtest Agent."""
+    pf = result.get("profit_factor")
+    pf_str = "∞ (без убыточных сделок)" if pf is None else f"{pf:.2f}"
+
+    side_ru = _SIDE_RU.get(result["side"], result["side"])
+
+    lines = [
+        f"🕰 Бэктест {result['symbol']} · {side_ru} · таймфрейм {result['timeframe']}",
+        "",
+        f"🎯 Вход {_fmt_price(result['entry'])}, "
+        f"стоп {_fmt_price(result['stop'])}, "
+        f"тейк {_fmt_price(result['take'])}  (R:R ≈ {result['rr']:.2f})",
+        f"🕯 Свечей в истории: {result['candles_analyzed']}",
+        "",
+        f"🔁 Сделок: {result['trades']} "
+        f"(прибыльных {result['wins']}, убыточных {result['losses']})",
+        f"✅ Win rate: {result['win_rate'] * 100:.1f}%",
+        f"📏 Средний R: {result['avg_R']:+.2f}",
+        f"🧮 Expectancy (ожидаемый R/сделку): {result['expectancy']:+.2f}",
+        f"⚖️ Profit factor: {pf_str}",
+        f"📉 Макс. просадка: {result['max_drawdown']:.2f} R",
+        "",
+        DISCLAIMER_BACKTEST,
     ]
     return "\n".join(lines)
