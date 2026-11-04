@@ -28,6 +28,7 @@ from agents.alerts_agent import (
 )
 from agents.alerts_agent import set_db_path as set_alerts_db
 from agents.backtest_agent import BacktestError, backtest
+import agents.broker_agent.broker as broker
 from agents.budget_agent import calc_position
 from agents.chart_agent import CHART_LABELS, render_analysis, render_backtest
 import agents.coordinator_agent.pipeline as coord_pipeline
@@ -985,6 +986,90 @@ async def _check_deploy(errors: list[str]) -> None:
         print(f"  {OK} /healthz=200 {{ok:true}}; деплой-файлы валидны; compose — {compose_checked}")
 
 
+async def _check_broker(errors: list[str]) -> None:
+    """Брокер на моках биржи: paper как раньше, подпись, live-гейты, killswitch."""
+    print("\n— Проверяю Брокер (моки биржи) …")
+    import hashlib
+    import hmac as _hmac
+
+    before = len(errors)
+    tmp_dir = tempfile.mkdtemp(prefix="broker_selftest_")
+    uid = 111
+
+    # Снимем возможные env от прошлых прогонов.
+    for k in ("BROKER_MODE", "BINANCE_API_KEY", "BINANCE_API_SECRET",
+              "BROKER_MAX_DAILY_LOSS_USDT"):
+        os.environ.pop(k, None)
+
+    saved_price = broker.get_ticker_24h
+
+    async def fake_ticker(symbol):
+        return {"lastPrice": "80000"}
+
+    try:
+        broker.set_db_path(f"{tmp_dir}/broker.db")
+        set_paper_db(f"{tmp_dir}/broker.db")
+        broker.get_ticker_24h = fake_ticker
+
+        # 1) paper как раньше: ордер открывает виртуальную позицию, баланс падает.
+        broker.set_mode("paper")
+        res = await broker.place_order(uid, "BTCUSDT", "buy", 0.01)
+        if res["status"] != "executed" or res["mode"] != "paper":
+            errors.append(f"broker: paper-ордер не исполнился ({res})")
+        if abs(get_balance(uid) - 9200.0) > 1e-9:
+            errors.append(f"broker: paper-баланс не уменьшился ({get_balance(uid)})")
+
+        # 2) Подпись testnet без сети: HMAC SHA256 совпадает с эталоном.
+        sig = broker._sign("symbol=BTCUSDT&side=BUY&type=MARKET&quantity=0.01", "secret123")
+        expected = _hmac.new(b"secret123",
+                             b"symbol=BTCUSDT&side=BUY&type=MARKET&quantity=0.01",
+                             hashlib.sha256).hexdigest()
+        if sig != expected:
+            errors.append("broker: подпись HMAC неверна")
+
+        # 3) live недоступен без BROKER_MODE=live.
+        if broker.current_mode() == "live":
+            errors.append("broker: live активен без BROKER_MODE=live")
+        try:
+            broker.set_mode("live")
+            errors.append("broker: set_mode('live') не отклонён")
+        except Exception:
+            pass
+
+        # 4) live без тапа подтверждения — ордер НЕ создаётся (нет сети/исполнения).
+        os.environ["BROKER_MODE"] = "live"
+        os.environ["BINANCE_API_KEY"] = "k"
+        os.environ["BINANCE_API_SECRET"] = "s"
+        res_live = await broker.place_order(uid, "BTCUSDT", "buy", 0.01, 79000, 82000)
+        if res_live["status"] != "needs_confirmation":
+            errors.append(f"broker: live-ордер ушёл без подтверждения ({res_live})")
+
+        # риск-гейт: live без стопа → BLOCK.
+        res_ns = await broker.place_order(uid, "BTCUSDT", "buy", 0.01)
+        if res_ns["status"] != "blocked" or "стоп" not in res_ns.get("reason", ""):
+            errors.append(f"broker: live без стопа не заблокирован ({res_ns})")
+
+        # 5) killswitch блокирует.
+        broker.engage_killswitch()
+        res_ks = await broker.place_order(uid, "BTCUSDT", "buy", 0.01, 79000, 82000)
+        if res_ks["status"] != "blocked" or "killswitch" not in res_ks.get("reason", ""):
+            errors.append(f"broker: killswitch не заблокировал ({res_ks})")
+        # paper при killswitch всё ещё работает.
+        broker_mode_env = os.environ.pop("BROKER_MODE", None)
+        broker.set_mode("paper")
+        res_paper2 = await broker.place_order(uid, "BTCUSDT", "buy", 0.01)
+        if res_paper2["status"] != "executed":
+            errors.append("broker: paper заблокирован killswitch'ем (не должен)")
+    finally:
+        broker.get_ticker_24h = saved_price
+        for k in ("BROKER_MODE", "BINANCE_API_KEY", "BINANCE_API_SECRET"):
+            os.environ.pop(k, None)
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    if len(errors) == before:
+        print(f"  {OK} paper ок, подпись верна, live без тапа/стопа не уходит, killswitch блокирует")
+
+
 async def _run() -> int:
     pairs = [("BTCUSDT", "1h"), ("ETHUSDT", "1h")]
     errors: list[str] = []
@@ -1025,6 +1110,7 @@ async def _run() -> int:
     _check_charts(errors)
     await _check_miniapp(errors)
     await _check_deploy(errors)
+    await _check_broker(errors)
 
     print()
     if errors:
