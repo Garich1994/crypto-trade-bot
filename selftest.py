@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import asyncio
 import math
+import shutil
 import sys
+import tempfile
 
 # На Windows консоль по умолчанию cp1252 и не печатает кириллицу — переключаем в UTF-8.
 for _stream in (sys.stdout, sys.stderr):
@@ -21,6 +23,13 @@ from agents.budget_agent import calc_position
 from agents.data_agent import DataAgentError, get_klines, get_klines_history
 from agents.entry_agent import EntryError, score_entry
 from agents.exit_agent import ExitError, plan_exit
+from agents.journal_agent import (
+    add_trade,
+    close_trade,
+    open_trades,
+    set_db_path,
+    stats,
+)
 from agents.news_agent import get_crypto_news
 from agents.risk_agent import check_risk
 from agents.scanner_agent import scan
@@ -32,7 +41,9 @@ from bot.formatting import (
     format_backtest,
     format_entry,
     format_exit,
+    format_journal,
     format_news,
+    format_open_trades,
     format_risk,
     format_scan,
     format_size,
@@ -336,6 +347,62 @@ def _check_risk(errors: list[str]) -> None:
         print("  --------------------------")
 
 
+def _check_journal(errors: list[str]) -> None:
+    """Журнал на временной БД: 2 сделки (прибыль+убыток), stats сходится."""
+    print("\n— Проверяю журнал сделок (временная БД) …")
+    tmp_dir = tempfile.mkdtemp(prefix="journal_selftest_")
+    uid, other = 111, 222
+    before = len(errors)
+    try:
+        set_db_path(f"{tmp_dir}/journal.db")
+
+        # Прибыльная: long 100→110 при стопе 90 (qty 1): pnl=+10, R=+1.
+        t1 = add_trade(uid, "BTCUSDT", "long", 100, 90, 120, 1)
+        # Убыточная: long 100→95 при стопе 90 (qty 1): pnl=-5, R=-0.5.
+        t2 = add_trade(uid, "ETHUSDT", "long", 100, 90, 120, 1)
+
+        if len(open_trades(uid)) != 2:
+            errors.append("journal: ожидалось 2 открытые сделки")
+
+        r1 = close_trade(uid, t1, 110)
+        r2 = close_trade(uid, t2, 95)
+        if abs(r1["pnl_usdt"] - 10.0) > 1e-9 or abs(r1["pnl_r"] - 1.0) > 1e-9:
+            errors.append(f"journal: PnL сделки 1 неверен ({r1})")
+        if abs(r2["pnl_usdt"] + 5.0) > 1e-9 or abs(r2["pnl_r"] + 0.5) > 1e-9:
+            errors.append(f"journal: PnL сделки 2 неверен ({r2})")
+
+        st = stats(uid)
+        if st["total"] != 2:
+            errors.append(f"journal: total != 2 ({st['total']})")
+        if abs(st["win_rate"] - 0.5) > 1e-9:
+            errors.append(f"journal: win_rate != 50% ({st['win_rate']})")
+        # Ручная сверка суммарного PnL: +10 + (-5) = +5.
+        if abs(st["total_pnl_usdt"] - 5.0) > 1e-9:
+            errors.append(f"journal: total_pnl_usdt != 5 ({st['total_pnl_usdt']})")
+
+        # Изоляция: у другого пользователя этих сделок нет.
+        if stats(other)["total"] != 0:
+            errors.append("journal: нарушена изоляция пользователей")
+        try:
+            close_trade(other, t1, 110)
+            errors.append("journal: чужую сделку удалось закрыть")
+        except Exception:
+            pass  # ожидаемо: чужая сделка «не найдена»
+
+        message = format_journal(st)
+        _check_forbidden(message, "journal", errors)
+        _check_forbidden(format_open_trades(open_trades(uid)), "opentrades", errors)
+
+        if len(errors) == before:
+            print(f"  {OK} total=2, win_rate=50%, PnL=+5 USDT, изоляция работает")
+            print("  ----- превью ответа -----")
+            for line in message.splitlines():
+                print(f"  {line}")
+            print("  --------------------------")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
 async def _run() -> int:
     pairs = [("BTCUSDT", "1h"), ("ETHUSDT", "1h")]
     errors: list[str] = []
@@ -367,6 +434,7 @@ async def _run() -> int:
     await _check_exit(errors)
     _check_size(errors)
     _check_risk(errors)
+    _check_journal(errors)
 
     print()
     if errors:
