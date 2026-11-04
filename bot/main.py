@@ -19,7 +19,8 @@ for _stream in (sys.stdout, sys.stderr):
 from aiogram import Bot, Dispatcher
 
 from agents.alerts_agent import run_check
-from bot.formatting import format_alert_fired
+from agents.paper_agent import run_paper_check
+from bot.formatting import format_alert_fired, format_paper_closed
 from bot.handlers import router
 from core.config import require_bot_token
 
@@ -34,14 +35,22 @@ async def _alerts_loop(bot: Bot) -> None:
     """
     while True:
         try:
-            events = await run_check()
-            for event in events:
+            # 1) Пользовательские подписки.
+            for event in await run_check():
                 try:
                     await bot.send_message(
                         event["user_id"], format_alert_fired(event)
                     )
                 except Exception:
                     logging.exception("Не удалось отправить уведомление подписки")
+            # 2) Автозакрытие виртуальных позиций по стоп/тейк.
+            for event in await run_paper_check():
+                try:
+                    await bot.send_message(
+                        event["user_id"], format_paper_closed(event)
+                    )
+                except Exception:
+                    logging.exception("Не удалось отправить уведомление paper")
         except Exception:
             logging.exception("Ошибка в цикле Сторожа")
         await asyncio.sleep(_ALERTS_INTERVAL)
