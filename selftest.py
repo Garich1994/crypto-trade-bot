@@ -18,12 +18,16 @@ for _stream in (sys.stdout, sys.stderr):
 
 from agents.backtest_agent import BacktestError, backtest
 from agents.data_agent import DataAgentError, get_klines_history
+from agents.news_agent import get_crypto_news
+from agents.scanner_agent import scan
 from agents.ta_agent import analyze
 from bot.formatting import (
     DISCLAIMER,
     DISCLAIMER_BACKTEST,
     format_analysis,
     format_backtest,
+    format_news,
+    format_scan,
 )
 
 OK = "\033[92m[OK]\033[0m"
@@ -141,6 +145,72 @@ async def _check_backtest(errors: list[str]) -> None:
         print("  --------------------------")
 
 
+def _check_forbidden(message: str, tag: str, errors: list[str]) -> None:
+    low = message.lower()
+    for word in FORBIDDEN_WORDS:
+        if word in low:
+            errors.append(f"{tag}: запрещённое слово «{word}»")
+
+
+async def _check_scan(errors: list[str]) -> None:
+    """Скан по топ-5 парам: должен вернуть список (возможно пустой)."""
+    print("\n— Проверяю скан (топ-5, 1h) …")
+    try:
+        findings = await scan(timeframe="1h", top_n=5)
+    except DataAgentError as exc:
+        errors.append(f"scan: данные недоступны — {exc}")
+        print(f"  {FAIL} {exc}")
+        return
+
+    before = len(errors)
+    if not isinstance(findings, list):
+        errors.append(f"scan: ожидался список, получено {type(findings).__name__}")
+    else:
+        for f in findings:
+            if not isinstance(f.get("patterns"), list) or not f["patterns"]:
+                errors.append(f"scan: находка без паттернов ({f.get('symbol')})")
+
+    message = format_scan(findings, "1h", top=10)
+    if not message.strip():
+        errors.append("scan: сообщение не сформировалось")
+    _check_forbidden(message, "scan", errors)
+
+    if len(errors) == before:
+        print(f"  {OK} скан вернул список ({len(findings)} находок), сообщение ок")
+        print("  ----- превью ответа -----")
+        for line in message.splitlines():
+            print(f"  {line}")
+        print("  --------------------------")
+
+
+async def _check_news(errors: list[str]) -> None:
+    """Новости: get_crypto_news возвращает список (>=0) без падения."""
+    print("\n— Проверяю новости …")
+    try:
+        items = await get_crypto_news(limit=5)
+    except Exception as exc:  # noqa: BLE001 — агент не должен падать
+        errors.append(f"news: упал с ошибкой — {exc!r}")
+        print(f"  {FAIL} упал: {exc!r}")
+        return
+
+    before = len(errors)
+    if not isinstance(items, list):
+        errors.append(f"news: ожидался список, получено {type(items).__name__}")
+    else:
+        for it in items:
+            if not it.get("title") or not it.get("url"):
+                errors.append("news: новость без заголовка или ссылки")
+
+    message = format_news(items)
+    if not message.strip():
+        errors.append("news: сообщение не сформировалось")
+    _check_forbidden(message, "news", errors)
+
+    if len(errors) == before:
+        note = "" if items else " (сейчас свежих новостей/доступа нет — это ок)"
+        print(f"  {OK} новости: {len(items)} шт.{note}")
+
+
 async def _run() -> int:
     pairs = [("BTCUSDT", "1h"), ("ETHUSDT", "1h")]
     errors: list[str] = []
@@ -166,6 +236,8 @@ async def _run() -> int:
             print("  --------------------------")
 
     await _check_backtest(errors)
+    await _check_scan(errors)
+    await _check_news(errors)
 
     print()
     if errors:
