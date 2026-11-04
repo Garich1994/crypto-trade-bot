@@ -39,6 +39,15 @@ from agents.journal_agent import (
     stats,
 )
 from agents.news_agent import get_crypto_news
+from agents.paper_agent import (
+    close_position,
+    get_balance,
+    open_position,
+    portfolio,
+    reset as paper_reset,
+    run_paper_check,
+)
+from agents.paper_agent import set_db_path as set_paper_db
 from agents.risk_agent import check_risk
 from agents.scanner_agent import scan
 from agents.ta_agent import analyze
@@ -53,6 +62,9 @@ from bot.formatting import (
     format_journal,
     format_news,
     format_open_trades,
+    format_paper_closed,
+    format_paper_opened,
+    format_paper_portfolio,
     format_risk,
     format_scan,
     format_size,
@@ -481,6 +493,83 @@ async def _check_alerts(errors: list[str]) -> None:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+async def _check_paper(errors: list[str]) -> None:
+    """Виртуальный портфель на мок-ценах: PnL, шорт, reset, изоляция, автозакрытие."""
+    print("\n— Проверяю виртуальный портфель (мок-цены, временная БД) …")
+    tmp_dir = tempfile.mkdtemp(prefix="paper_selftest_")
+    uid, other = 111, 222
+    before = len(errors)
+    try:
+        set_paper_db(f"{tmp_dir}/paper.db")
+
+        if abs(get_balance(uid) - 10000.0) > 1e-9:
+            errors.append("paper: стартовый баланс не 10 000")
+
+        # Лонг: вход 80000, qty 0.01 -> номинал 800, баланс 9200.
+        p = open_position(uid, "BTCUSDT", "long", 0.01, 80000)
+        if abs(get_balance(uid) - 9200.0) > 1e-9:
+            errors.append(f"paper: покупка не уменьшила баланс ({get_balance(uid)})")
+        # Выход 81000 -> PnL +10. Номинал 800 возвращается + PnL: 9200+810=10010
+        # (чистый эффект круга = PnL, т.е. 10000 + 10).
+        r = close_position(uid, p["id"], 81000)
+        if abs(r["pnl_usdt"] - 10.0) > 1e-9:
+            errors.append(f"paper: PnL лонга != +10 ({r['pnl_usdt']})")
+        if abs(get_balance(uid) - 10010.0) > 1e-9:
+            errors.append(f"paper: баланс после лонга != 10010 ({get_balance(uid)})")
+
+        # Шорт зеркально: вход 80000, выход 79000, qty 0.01 -> PnL +10.
+        ps = open_position(uid, "BTCUSDT", "short", 0.01, 80000)
+        rs = close_position(uid, ps["id"], 79000)
+        if abs(rs["pnl_usdt"] - 10.0) > 1e-9:
+            errors.append(f"paper: PnL шорта != +10 ({rs['pnl_usdt']})")
+
+        # Превышение баланса -> ошибка (плечо 1x).
+        try:
+            open_position(uid, "BTCUSDT", "long", 1, 80000)  # номинал 80000 > баланса
+            errors.append("paper: позволил позицию больше баланса")
+        except Exception:
+            pass
+
+        # Автозакрытие по стопу через run_paper_check (мок-цена).
+        pa = open_position(uid, "ETHUSDT", "long", 0.01, 2000, stop=1900, take=2200)
+
+        async def fake_price(symbol):
+            return 1850.0  # ниже стопа 1900
+
+        events = await run_paper_check(fetcher=fake_price)
+        if not any(e["id"] == pa["id"] and e["reason"] == "stop" for e in events):
+            errors.append("paper: позиция не закрылась по стопу в run_paper_check")
+
+        # reset -> 10 000, без позиций.
+        bal = paper_reset(uid)
+        if abs(bal - 10000.0) > 1e-9 or portfolio(uid)["positions"]:
+            errors.append("paper: reset не вернул портфель к 10 000 без позиций")
+
+        # Изоляция: у другого пользователя свой старт, чужую позицию не закрыть.
+        if abs(get_balance(other) - 10000.0) > 1e-9:
+            errors.append("paper: изоляция баланса нарушена")
+        p2 = open_position(other, "BTCUSDT", "long", 0.01, 80000)
+        try:
+            close_position(uid, p2["id"], 81000)
+            errors.append("paper: удалось закрыть чужую позицию")
+        except Exception:
+            pass
+
+        # Нет запрещённых слов в текстах.
+        _check_forbidden(format_paper_portfolio(portfolio(other)), "paper", errors)
+        _check_forbidden(format_paper_opened(p2), "paper", errors)
+        _check_forbidden(format_paper_closed(r), "paper", errors)
+
+        if len(errors) == before:
+            print(f"  {OK} лонг +10, шорт +10, лимит 1x, автостоп, reset, изоляция — ок")
+            print("  ----- превью ответа -----")
+            for line in format_paper_closed(r).splitlines():
+                print(f"  {line}")
+            print("  --------------------------")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
 async def _run() -> int:
     pairs = [("BTCUSDT", "1h"), ("ETHUSDT", "1h")]
     errors: list[str] = []
@@ -514,6 +603,7 @@ async def _run() -> int:
     _check_risk(errors)
     _check_journal(errors)
     await _check_alerts(errors)
+    await _check_paper(errors)
 
     print()
     if errors:
