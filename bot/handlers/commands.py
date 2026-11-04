@@ -13,6 +13,13 @@ from agents.data_agent import DataAgentError
 from agents.data_agent.client import ALLOWED_INTERVALS
 from agents.entry_agent import EntryError, score_entry
 from agents.exit_agent import ExitError, plan_exit
+from agents.journal_agent import (
+    JournalError,
+    add_trade,
+    close_trade,
+    open_trades,
+    stats,
+)
 from agents.news_agent import get_crypto_news
 from agents.risk_agent import RiskError, check_risk
 from agents.scanner_agent import scan
@@ -24,10 +31,13 @@ from bot.formatting import (
     format_backtest,
     format_entry,
     format_exit,
+    format_journal,
     format_news,
+    format_open_trades,
     format_risk,
     format_scan,
     format_size,
+    format_trade_closed,
 )
 
 logger = logging.getLogger(__name__)
@@ -50,9 +60,18 @@ START_TEXT = (
     "• /size депозит риск% вход стоп [плечо] — размер позиции по риску\n"
     "   пример: /size 10000 1 80300 79500 5\n"
     "• /risk депозит риск% открытых_сделок — проверка риск-лимитов\n"
-    "   пример: /risk 10000 1 2\n\n"
+    "   пример: /risk 10000 1 2\n"
+    "• /trade ПАРА сторона вход стоп тейк объём — записать сделку в журнал\n"
+    "   пример: /trade BTCUSDT long 80300 79500 81200 0.125\n"
+    "• /close id цена — закрыть сделку по цене выхода\n"
+    "• /journal — статистика по закрытым сделкам\n"
+    "• /opentrades — открытые сделки\n\n"
     f"{DISCLAIMER}"
 )
+
+
+def _user_id(message: Message) -> int:
+    return message.from_user.id if message.from_user else 0
 
 
 @router.message(CommandStart())
@@ -309,3 +328,92 @@ async def cmd_risk(message: Message, command: CommandObject) -> None:
         return
 
     await message.answer(format_risk(result))
+
+
+_TRADE_USAGE = (
+    "Формат: /trade ПАРА сторона вход стоп тейк объём\n"
+    "Пример: /trade BTCUSDT long 80300 79500 81200 0.125"
+)
+
+
+@router.message(Command("trade"))
+async def cmd_trade(message: Message, command: CommandObject) -> None:
+    args = (command.args or "").split()
+    if len(args) < 6:
+        await message.answer(_TRADE_USAGE)
+        return
+
+    symbol, side = args[0].upper(), args[1]
+    try:
+        entry = float(args[2].replace(",", "."))
+        stop = float(args[3].replace(",", "."))
+        take = float(args[4].replace(",", "."))
+        qty = float(args[5].replace(",", "."))
+    except ValueError:
+        await message.answer("Цены и объём должны быть числами.\n\n" + _TRADE_USAGE)
+        return
+
+    try:
+        trade_id = add_trade(_user_id(message), symbol, side, entry, stop, take, qty)
+    except JournalError as exc:
+        await message.answer(f"Не получилось: {exc}")
+        return
+    except Exception:
+        logger.exception("Непредвиденная ошибка в /trade")
+        await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+        return
+
+    await message.answer(
+        f"📝 Сделка записана, №{trade_id}.\n"
+        f"{symbol} · {side.lower()}: вход {entry}, стоп {stop}, тейк {take}, объём {qty}.\n"
+        f"Закрыть потом: /close {trade_id} цена_выхода"
+    )
+
+
+@router.message(Command("close"))
+async def cmd_close(message: Message, command: CommandObject) -> None:
+    args = (command.args or "").split()
+    if len(args) < 2:
+        await message.answer("Формат: /close id цена_выхода\nПример: /close 3 81000")
+        return
+
+    try:
+        trade_id = int(args[0])
+        exit_price = float(args[1].replace(",", "."))
+    except ValueError:
+        await message.answer("id — целое число, цена выхода — число. Пример: /close 3 81000")
+        return
+
+    try:
+        result = close_trade(_user_id(message), trade_id, exit_price)
+    except JournalError as exc:
+        await message.answer(f"Не получилось: {exc}")
+        return
+    except Exception:
+        logger.exception("Непредвиденная ошибка в /close")
+        await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+        return
+
+    await message.answer(format_trade_closed(result))
+
+
+@router.message(Command("journal"))
+async def cmd_journal(message: Message) -> None:
+    try:
+        st = stats(_user_id(message))
+    except Exception:
+        logger.exception("Непредвиденная ошибка в /journal")
+        await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+        return
+    await message.answer(format_journal(st))
+
+
+@router.message(Command("opentrades"))
+async def cmd_opentrades(message: Message) -> None:
+    try:
+        trades = open_trades(_user_id(message))
+    except Exception:
+        logger.exception("Непредвиденная ошибка в /opentrades")
+        await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+        return
+    await message.answer(format_open_trades(trades))

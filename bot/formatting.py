@@ -10,6 +10,9 @@ DISCLAIMER = "⚠️ Не финансовый совет. Это аналити
 DISCLAIMER_BACKTEST = (
     "⚠️ Не финансовый совет. Прошлое не гарантирует будущего, решение — за тобой."
 )
+DISCLAIMER_JOURNAL = (
+    "⚠️ Не финансовый совет. Статистика прошлого не гарантирует будущего."
+)
 
 _SIDE_RU = {"long": "лонг", "short": "шорт"}
 
@@ -210,6 +213,54 @@ def format_risk(result: dict) -> str:
         "",
         DISCLAIMER,
     ]
+    return "\n".join(lines)
+
+
+def format_trade_closed(result: dict) -> str:
+    """Собрать текст ответа на /close."""
+    side_ru = _SIDE_RU.get(result["side"], result["side"])
+    return "\n".join(
+        [
+            f"✅ Сделка №{result['id']} закрыта",
+            f"{result['symbol']} · {side_ru}",
+            f"Вход {_fmt_price(result['entry'])} → выход {_fmt_price(result['exit_price'])}",
+            f"PnL: {result['pnl_usdt']:+.2f} USDT ({result['pnl_r']:+.2f} R)",
+        ]
+    )
+
+
+def format_journal(st: dict) -> str:
+    """Собрать текст ответа на /journal."""
+    if st["total"] == 0:
+        return "📒 Журнал сделок\n\nПока нет закрытых сделок.\n\n" + DISCLAIMER_JOURNAL
+
+    lines = [
+        "📒 Журнал сделок",
+        "",
+        f"Закрыто сделок: {st['total']}",
+        f"Прибыльных: {st['wins']} (win rate {st['win_rate'] * 100:.1f}%)",
+        f"Средний R: {st['avg_r']:+.2f}",
+        f"Expectancy: {st['expectancy']:+.2f} R",
+        f"Суммарный PnL: {st['total_pnl_usdt']:+.2f} USDT",
+        f"Лучший R: {st['best_r']:+.2f}, худший R: {st['worst_r']:+.2f}",
+        "",
+        DISCLAIMER_JOURNAL,
+    ]
+    return "\n".join(lines)
+
+
+def format_open_trades(trades: list[dict]) -> str:
+    """Собрать текст ответа на /opentrades."""
+    if not trades:
+        return "📂 Открытых сделок нет."
+    lines = ["📂 Открытые сделки:", ""]
+    for t in trades:
+        side_ru = _SIDE_RU.get(t["side"], t["side"])
+        lines.append(
+            f"№{t['id']} · {t['symbol']} · {side_ru}: "
+            f"вход {_fmt_price(t['entry'])}, стоп {_fmt_price(t['stop'])}, "
+            f"тейк {_fmt_price(t['take'])}, объём {_fmt_qty(t['qty'])}"
+        )
     return "\n".join(lines)
 
 
