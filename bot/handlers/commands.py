@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import logging
+import os
 
 from aiogram import Router
 from aiogram.filters import Command, CommandObject, CommandStart
-from aiogram.types import Message
+from aiogram.types import FSInputFile, Message
 
 from agents.alerts_agent import (
     CONDITION_TYPES,
@@ -16,6 +17,7 @@ from agents.alerts_agent import (
 )
 from agents.backtest_agent import BacktestError, backtest
 from agents.budget_agent import BudgetError, calc_position
+from agents.chart_agent import plot_analysis, plot_backtest
 from agents.coordinator_agent import (
     AutobriefError,
     build_brief,
@@ -80,7 +82,8 @@ START_TEXT = (
     "Я не даю торговых указаний — только факты о цене и индикаторах.\n\n"
     "Команды:\n"
     "• /start — это сообщение\n"
-    "• /analyze BTCUSDT [таймфрейм] — технический разбор пары\n"
+    "• /analyze BTCUSDT [таймфрейм] — технический разбор пары (с графиком)\n"
+    "• /chart BTCUSDT [таймфрейм] — график пары (свечи, EMA, объём, RSI)\n"
     f"   таймфреймы: {', '.join(ALLOWED_INTERVALS)} (по умолчанию {DEFAULT_TIMEFRAME})\n"
     "   пример: /analyze ETHUSDT 4h\n"
     "• /backtest BTCUSDT long вход стоп тейк [таймфрейм] — прогон уровней по истории\n"
@@ -123,6 +126,17 @@ def _user_id(message: Message) -> int:
     return message.from_user.id if message.from_user else 0
 
 
+async def _send_and_cleanup(message: Message, path: str) -> None:
+    """Отправить PNG и удалить временный файл после отправки."""
+    try:
+        await message.answer_photo(FSInputFile(path))
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
 @router.message(CommandStart())
 async def cmd_start(message: Message) -> None:
     await message.answer(START_TEXT)
@@ -156,6 +170,13 @@ async def cmd_analyze(message: Message, command: CommandObject) -> None:
         return
 
     await message.answer(format_analysis(result))
+
+    # График прикладываем отдельно; его сбой не ломает текстовый ответ.
+    try:
+        path = await plot_analysis(symbol, timeframe)
+        await _send_and_cleanup(message, path)
+    except Exception:
+        logger.exception("Не удалось построить график для /analyze")
 
 
 _BACKTEST_USAGE = (
@@ -667,6 +688,34 @@ async def cmd_whales(message: Message, command: CommandObject) -> None:
     await message.answer(format_whales(result))
 
 
+@router.message(Command("chart"))
+async def cmd_chart(message: Message, command: CommandObject) -> None:
+    args = (command.args or "").split()
+    if not args:
+        await message.answer("Формат: /chart ПАРА [таймфрейм]\nПример: /chart BTCUSDT 4h")
+        return
+
+    symbol = args[0].upper()
+    timeframe = args[1].lower() if len(args) > 1 else DEFAULT_TIMEFRAME
+    if timeframe not in ALLOWED_INTERVALS:
+        await message.answer(
+            f"Неподдерживаемый таймфрейм. Доступны: {', '.join(ALLOWED_INTERVALS)}."
+        )
+        return
+
+    try:
+        path = await plot_analysis(symbol, timeframe)
+    except DataAgentError as exc:
+        await message.answer(f"Не получилось: {exc}")
+        return
+    except Exception:
+        logger.exception("Непредвиденная ошибка в /chart")
+        await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+        return
+
+    await _send_and_cleanup(message, path)
+
+
 @router.message(Command("liquidations"))
 async def cmd_liquidations(message: Message) -> None:
     await message.answer(LIQUIDATIONS_NOTE)
@@ -685,6 +734,19 @@ async def cmd_brief(message: Message) -> None:
         await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
         return
     await message.answer(format_brief(brief, auto=False))
+
+    # График топ-1 идеи с уровнями.
+    ideas = brief.get("ideas") or []
+    if ideas:
+        top = ideas[0]
+        try:
+            path = await plot_backtest(
+                top["symbol"], top["entry"], top["stop"],
+                [top["take1"], top["take2"]], brief.get("timeframe", "1h"),
+            )
+            await _send_and_cleanup(message, path)
+        except Exception:
+            logger.exception("Не удалось построить график для /brief")
 
 
 @router.message(Command("autobrief"))
