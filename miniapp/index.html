@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CryptoPilot — дашборд</title>
+<style>
+  :root{
+    --bg:#0b0e11; --panel:#161a1e; --panel2:#1e242b; --line:#2b3139;
+    --text:#eaecef; --muted:#848e9c; --gold:#f0b90b; --green:#0ecb81; --red:#f6465d;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;font-size:15px;
+    padding:16px;max-width:760px;margin:0 auto}
+  header{display:flex;align-items:center;justify-content:space-between;
+    padding:14px 16px;background:linear-gradient(135deg,#161a1e,#1e242b);
+    border:1px solid var(--line);border-radius:14px;margin-bottom:14px}
+  .brand{font-weight:700;font-size:18px}
+  .brand .b{color:var(--gold)}
+  .bal{text-align:right}
+  .bal .v{font-weight:700;font-size:18px}
+  .muted{color:var(--muted);font-size:12px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:14px 16px;margin-bottom:14px}
+  .card h2{margin:0 0 10px;font-size:13px;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--muted);font-weight:600}
+  .coins{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+  @media(max-width:560px){.coins{grid-template-columns:1fr}}
+  .coin{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:10px}
+  .coin .s{font-weight:700}
+  .coin .p{font-size:17px;font-weight:700;margin:2px 0}
+  .up{color:var(--green)} .down{color:var(--red)}
+  .idea{border-top:1px solid var(--line);padding:10px 0}
+  .idea:first-of-type{border-top:0}
+  .idea .h{display:flex;justify-content:space-between;align-items:center}
+  .sym{font-weight:700}
+  .bar{height:8px;background:var(--panel2);border-radius:6px;overflow:hidden;margin:6px 0}
+  .bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--gold),#ffd250)}
+  .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;
+    margin:2px 4px 2px 0;border:1px solid var(--line)}
+  .pill.ok{color:var(--green);border-color:rgba(14,203,129,.4)}
+  .pill.fail{color:var(--red);border-color:rgba(246,70,93,.4)}
+  .lv{color:var(--muted);font-size:13px}
+  .row{display:flex;justify-content:space-between;padding:4px 0}
+  .kv .v{font-weight:700}
+  .whale{display:flex;justify-content:space-between;padding:5px 0;border-top:1px solid var(--line);font-size:14px}
+  .whale:first-child{border-top:0}
+  .status{font-weight:700}
+  footer{text-align:center;color:var(--muted);font-size:12px;margin:18px 0 6px}
+  .warn{color:var(--gold)}
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand">Crypto<span class="b">Pilot</span></div>
+    <div class="bal">
+      <div class="muted">🧪 Paper-баланс</div>
+      <div class="v" id="balance">—</div>
+    </div>
+  </header>
+
+  <div class="card">
+    <h2>Рынок</h2>
+    <div class="coins" id="market"><div class="muted">Загрузка…</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Автобриф — наблюдения</h2>
+    <div id="brief"><div class="muted">Загрузка…</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Скептик — последняя идея</h2>
+    <div id="skeptic"><div class="muted">Загрузка…</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Киты (спот)</h2>
+    <div id="whales"><div class="muted">Загрузка…</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Журнал</h2>
+    <div id="journal"><div class="muted">Загрузка…</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Риск-гейт (ориентир)</h2>
+    <div class="row kv"><span>Лимит на сделку</span><span class="v">2%</span></div>
+    <div class="row kv"><span>Суммарный лимит</span><span class="v">6%</span></div>
+    <div class="row kv"><span>Статус</span><span class="v status up" id="risk">—</span></div>
+    <div class="muted">Ориентир классических лимитов. Точную проверку даёт команда /risk.</div>
+  </div>
+
+  <footer>⚠️ Не финансовый совет. Наблюдения, не рекомендации.</footer>
+
+<script>
+const UID = 1; // демо-пользователь
+const fmt = n => (n>=1000? n.toLocaleString('ru-RU',{maximumFractionDigits:2})
+                         : (n>=1? n.toFixed(2): n.toPrecision(4)));
+const pct = n => (n>=0?'+':'')+Number(n).toFixed(2)+'%';
+
+async function getJSON(u){ try{const r=await fetch(u); return await r.json();}catch(e){return {ok:false,error:String(e)};} }
+
+function sparkline(data){
+  if(!data||data.length<2) return '';
+  const w=120,h=34,min=Math.min(...data),max=Math.max(...data),rng=(max-min)||1;
+  const pts=data.map((v,i)=>[(i/(data.length-1))*w,h-((v-min)/rng)*h]);
+  const col = data[data.length-1]>=data[0] ? 'var(--green)':'var(--red)';
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline fill="none" stroke="${col}" stroke-width="1.6" points="${pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ')}"/></svg>`;
+}
+
+async function loadMarket(){
+  const d = await getJSON('/api/market'); const el=document.getElementById('market');
+  if(!d.ok){ el.innerHTML='<div class="muted">Данные рынка недоступны.</div>'; return; }
+  el.innerHTML = d.coins.map(c=>{
+    const cl = c.change24h>=0?'up':'down';
+    return `<div class="coin"><div class="s">${c.symbol.replace('USDT','')}</div>
+      <div class="p">${fmt(c.price)}</div>
+      <div class="${cl}">${pct(c.change24h)}</div>
+      <div>${sparkline(c.spark)}</div></div>`;
+  }).join('');
+}
+
+async function loadBrief(){
+  const d = await getJSON('/api/brief');
+  const bEl=document.getElementById('brief'), sEl=document.getElementById('skeptic');
+  if(!d.ok || !d.brief){ bEl.innerHTML='<div class="muted">Бриф недоступен.</div>';
+    sEl.innerHTML='<div class="muted">Нет идеи для разбора.</div>'; return; }
+  const ideas=(d.brief.ideas||[]).slice(0,3);
+  if(!ideas.length){ bEl.innerHTML='<div class="muted">Ярких идей по правилам не набралось.</div>'; }
+  else{
+    bEl.innerHTML = ideas.map(i=>`<div class="idea">
+      <div class="h"><span class="sym">${i.symbol} · ${i.side==='long'?'лонг':'шорт'}</span>
+      <span class="muted">скептик ${i.skeptic_passed}/${i.skeptic_total}</span></div>
+      <div class="bar"><i style="width:${Math.max(0,Math.min(100,i.score))}%"></i></div>
+      <div class="lv">скоринг ${i.score}/100 · стоп ${fmt(i.stop)} · тейк ${fmt(i.take1)}</div>
+    </div>`).join('');
+  }
+  const top = ideas[0];
+  if(!top){ sEl.innerHTML='<div class="muted">Нет идеи для разбора.</div>'; }
+  else{
+    const strong = (top.skeptic_passed||0);
+    let pills = `<span class="pill ok">сильных: ${strong}/${top.skeptic_total}</span>`;
+    (top.weak_points||[]).forEach(w=> pills += `<span class="pill fail">${w}</span>`);
+    sEl.innerHTML = `<div class="sym">${top.symbol} · ${top.side==='long'?'лонг':'шорт'}</div><div style="margin-top:6px">${pills}</div>`;
+  }
+}
+
+async function loadWhales(){
+  const d = await getJSON('/api/whales'); const el=document.getElementById('whales');
+  if(!d.ok || !d.whales){ el.innerHTML='<div class="muted">Данные недоступны.</div>'; return; }
+  const w=d.whales, top=(w.top||[]);
+  let head=`<div class="row"><span class="muted">${w.symbol} · давление</span><span class="status">${w.pressure}</span></div>`;
+  if(!top.length){ el.innerHTML=head+'<div class="muted">Крупных сделок в окне нет.</div>'; return; }
+  el.innerHTML = head + top.map(t=>{
+    const cl=t.side==='buy'?'up':'down', s=t.side==='buy'?'покупка':'продажа';
+    return `<div class="whale"><span class="${cl}">${s}</span><span>${fmt(t.price)} · ~${(t.notional/1000).toFixed(0)}K USDT</span></div>`;
+  }).join('');
+}
+
+async function loadJournal(){
+  const d = await getJSON('/api/journal/'+UID); const el=document.getElementById('journal');
+  if(!d.ok || !d.stats){ el.innerHTML='<div class="muted">Журнал недоступен.</div>'; return; }
+  const s=d.stats;
+  if(!s.total){ el.innerHTML='<div class="muted">Пока нет закрытых сделок.</div>'; return; }
+  el.innerHTML = `
+    <div class="row kv"><span>Сделок</span><span class="v">${s.total}</span></div>
+    <div class="row kv"><span>Win rate</span><span class="v">${(s.win_rate*100).toFixed(1)}%</span></div>
+    <div class="row kv"><span>Средний R</span><span class="v">${s.avg_r>=0?'+':''}${s.avg_r.toFixed(2)}</span></div>
+    <div class="row kv"><span>Expectancy</span><span class="v">${s.expectancy>=0?'+':''}${s.expectancy.toFixed(2)} R</span></div>`;
+}
+
+async function loadPaper(){
+  const d = await getJSON('/api/paper/'+UID); const el=document.getElementById('balance');
+  if(d.ok && d.portfolio){ el.textContent = fmt(d.portfolio.balance)+' USDT'; }
+  else { el.textContent='—'; }
+  document.getElementById('risk').textContent='в пределах лимитов';
+}
+
+loadPaper(); loadMarket(); loadBrief(); loadWhales(); loadJournal();
+</script>
+</body>
+</html>
