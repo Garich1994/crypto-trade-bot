@@ -116,6 +116,50 @@ def format_scan(findings: list[dict], timeframe: str, top: int = 10) -> str:
     return "\n".join(lines)
 
 
+def format_entry(result: dict) -> str:
+    """Собрать текст ответа на /entry (скоринг условий входа)."""
+    side_ru = _SIDE_RU.get(result["side"], result["side"])
+    lines = [
+        f"🎯 Оценка условий {side_ru}-входа · {result['symbol']} · "
+        f"таймфрейм {result['timeframe']}",
+        "",
+        f"Балл условий: {result['score']}/100",
+        "",
+        "Факторы:",
+    ]
+    for f in result["factors"]:
+        pts = f["points"]
+        sign = f"+{pts}" if pts > 0 else (f"{pts}" if pts < 0 else "0")
+        lines.append(f"• {f['label']}  ({sign})")
+    lines.extend(["", result["summary"], "", DISCLAIMER])
+    return "\n".join(lines)
+
+
+def format_exit(result: dict) -> str:
+    """Собрать текст ответа на /exit (уровни стопа и тейков)."""
+    side_ru = _SIDE_RU.get(result["side"], result["side"])
+    snapped = result.get("snapped") or []
+    snap_note = (
+        f"подтянуты к уровням S/R: {', '.join(snapped)}"
+        if snapped
+        else "уровни S/R рядом не нашлись — чистый ATR"
+    )
+    lines = [
+        f"🚪 План выхода · {side_ru} · {result['symbol']} · таймфрейм {result['timeframe']}",
+        "",
+        f"🎯 Вход: {_fmt_price(result['entry'])}",
+        f"🛑 Стоп: {_fmt_price(result['stop'])}",
+        f"✅ Тейк 1: {_fmt_price(result['take1'])}  (R:R ≈ {result['rr1']:.2f})",
+        f"✅ Тейк 2: {_fmt_price(result['take2'])}  (R:R ≈ {result['rr2']:.2f})",
+        "",
+        f"📐 Основание: ATR(14) = {_fmt_price(result['atr'])} × {result['atr_mult']}; "
+        f"{snap_note}.",
+        "",
+        DISCLAIMER,
+    ]
+    return "\n".join(lines)
+
+
 def _ago(dt: datetime) -> str:
     """Человекочитаемое «сколько назад» для времени в UTC."""
     delta = datetime.now(timezone.utc) - dt

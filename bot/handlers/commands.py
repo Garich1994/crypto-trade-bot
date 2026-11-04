@@ -10,6 +10,8 @@ from aiogram.types import Message
 from agents.backtest_agent import BacktestError, backtest
 from agents.data_agent import DataAgentError
 from agents.data_agent.client import ALLOWED_INTERVALS
+from agents.entry_agent import EntryError, score_entry
+from agents.exit_agent import ExitError, plan_exit
 from agents.news_agent import get_crypto_news
 from agents.scanner_agent import scan
 from agents.ta_agent import analyze
@@ -18,6 +20,8 @@ from bot.formatting import (
     DISCLAIMER,
     format_analysis,
     format_backtest,
+    format_entry,
+    format_exit,
     format_news,
     format_scan,
 )
@@ -36,7 +40,9 @@ START_TEXT = (
     "• /backtest BTCUSDT long вход стоп тейк [таймфрейм] — прогон уровней по истории\n"
     "   пример: /backtest BTCUSDT long 80000 78000 84000 1h\n"
     "• /scan [таймфрейм] — обзор топ-30 USDT-пар и подсветка ситуаций\n"
-    "• /news — свежие крипто-новости\n\n"
+    "• /news — свежие крипто-новости\n"
+    "• /entry BTCUSDT long [таймфрейм] — оценка условий входа (балл 0–100)\n"
+    "• /exit BTCUSDT long 80300 [таймфрейм] — расчёт стопа и тейков по ATR и уровням\n\n"
     f"{DISCLAIMER}"
 )
 
@@ -155,3 +161,71 @@ async def cmd_news(message: Message) -> None:
         return
 
     await message.answer(format_news(items))
+
+
+_ENTRY_USAGE = (
+    "Формат: /entry ПАРА сторона [таймфрейм]\n"
+    "Пример: /entry BTCUSDT long 1h\n"
+    "Сторона: long или short."
+)
+
+
+@router.message(Command("entry"))
+async def cmd_entry(message: Message, command: CommandObject) -> None:
+    args = (command.args or "").split()
+    if len(args) < 2:
+        await message.answer(_ENTRY_USAGE)
+        return
+
+    symbol = args[0].upper()
+    side = args[1]
+    timeframe = args[2].lower() if len(args) > 2 else DEFAULT_TIMEFRAME
+
+    try:
+        result = await score_entry(symbol, timeframe, side)
+    except (EntryError, DataAgentError) as exc:
+        await message.answer(f"Не получилось: {exc}")
+        return
+    except Exception:
+        logger.exception("Непредвиденная ошибка в /entry")
+        await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+        return
+
+    await message.answer(format_entry(result))
+
+
+_EXIT_USAGE = (
+    "Формат: /exit ПАРА сторона цена_входа [таймфрейм]\n"
+    "Пример: /exit BTCUSDT long 80300 1h\n"
+    "Сторона: long или short."
+)
+
+
+@router.message(Command("exit"))
+async def cmd_exit(message: Message, command: CommandObject) -> None:
+    args = (command.args or "").split()
+    if len(args) < 3:
+        await message.answer(_EXIT_USAGE)
+        return
+
+    symbol = args[0].upper()
+    side = args[1]
+    timeframe = args[3].lower() if len(args) > 3 else DEFAULT_TIMEFRAME
+
+    try:
+        entry = float(args[2].replace(",", "."))
+    except ValueError:
+        await message.answer("Цена входа должна быть числом.\n\n" + _EXIT_USAGE)
+        return
+
+    try:
+        result = await plan_exit(symbol, timeframe, side, entry)
+    except (ExitError, DataAgentError) as exc:
+        await message.answer(f"Не получилось: {exc}")
+        return
+    except Exception:
+        logger.exception("Непредвиденная ошибка в /exit")
+        await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+        return
+
+    await message.answer(format_exit(result))
