@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import os
 import shutil
 import sys
 import tempfile
@@ -28,6 +29,7 @@ from agents.alerts_agent import (
 from agents.alerts_agent import set_db_path as set_alerts_db
 from agents.backtest_agent import BacktestError, backtest
 from agents.budget_agent import calc_position
+from agents.chart_agent import CHART_LABELS, render_analysis, render_backtest
 import agents.coordinator_agent.pipeline as coord_pipeline
 from agents.coordinator_agent import (
     build_brief,
@@ -773,6 +775,53 @@ async def _check_coordinator(errors: list[str]) -> None:
         print("  --------------------------")
 
 
+def _check_charts(errors: list[str]) -> None:
+    """Графики на мок-свечах: PNG создаётся, размер > 0, подписи нейтральны."""
+    print("\n— Проверяю графики (мок-свечи) …")
+    before = len(errors)
+
+    # Синтетические свечи в формате Binance klines.
+    rows = []
+    base = 80000.0
+    for i in range(120):
+        o = base + i * 10
+        c = o + (50 if i % 2 == 0 else -40)
+        h = max(o, c) + 30
+        low = min(o, c) - 30
+        vol = 100 + (i % 10) * 5
+        t = 1_000_000_000_000 + i * 3_600_000
+        rows.append([t, o, h, low, c, vol, t + 3_600_000, 0, 0, 0, 0, 0])
+
+    # Нет запрещённых слов в статических подписях.
+    for label in CHART_LABELS:
+        for word in FORBIDDEN_WORDS:
+            if word in label.lower():
+                errors.append(f"charts: запрещённое слово «{word}» в подписи «{label}»")
+
+    paths = []
+    try:
+        p1 = render_analysis("BTCUSDT", "1h", rows)
+        paths.append(p1)
+        if not (os.path.isfile(p1) and os.path.getsize(p1) > 0):
+            errors.append("charts: plot_analysis не создал непустой PNG")
+
+        p2 = render_backtest("BTCUSDT", "1h", rows, 80500, 79800, [81500, 82200])
+        paths.append(p2)
+        if not (os.path.isfile(p2) and os.path.getsize(p2) > 0):
+            errors.append("charts: plot_backtest не создал непустой PNG")
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"charts: рендер упал — {exc!r}")
+    finally:
+        for p in paths:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+
+    if len(errors) == before:
+        print(f"  {OK} оба PNG созданы (размер > 0), подписи нейтральны")
+
+
 async def _run() -> int:
     pairs = [("BTCUSDT", "1h"), ("ETHUSDT", "1h")]
     errors: list[str] = []
@@ -810,6 +859,7 @@ async def _run() -> int:
     _check_whales(errors)
     _check_skeptic(errors)
     await _check_coordinator(errors)
+    _check_charts(errors)
 
     print()
     if errors:
