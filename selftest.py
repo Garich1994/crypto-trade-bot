@@ -48,6 +48,7 @@ from agents.journal_agent import (
     set_db_path,
     stats,
 )
+import miniapp.server as miniapp_server
 from agents.news_agent import get_crypto_news
 from agents.paper_agent import (
     close_position,
@@ -822,6 +823,91 @@ def _check_charts(errors: list[str]) -> None:
         print(f"  {OK} оба PNG созданы (размер > 0), подписи нейтральны")
 
 
+async def _check_miniapp(errors: list[str]) -> None:
+    """Mini App: сервер стартует, все /api/* отвечают 200 с валидным JSON (мок-данные)."""
+    print("\n— Проверяю Mini App (сервер + /api/*) …")
+    from aiohttp.test_utils import TestClient, TestServer
+
+    before = len(errors)
+
+    async def fake_ticker(symbol):
+        return {"lastPrice": "80000", "priceChangePercent": "3.5"}
+
+    async def fake_klines(symbol, tf, limit=30):
+        return [[i, 80000 + i, 80100 + i, 79900 + i, 80000 + i, 100, i, 0, 0, 0, 0, 0]
+                for i in range(limit)]
+
+    async def fake_brief(top=3):
+        return {
+            "generated_at": "2026-01-01T00:00:00+00:00",
+            "timeframe": "1h", "market_summary": "наблюдается 1 ситуаций",
+            "news": [], "ideas": [{
+                "symbol": "BTCUSDT", "side": "long", "score": 60,
+                "entry": 80000, "stop": 78500, "take1": 83000, "take2": 85000,
+                "skeptic_passed": 5, "skeptic_total": 5, "weak_points": [],
+            }], "filtered_out": [],
+        }
+
+    async def fake_whales(symbol):
+        return {"symbol": symbol, "pressure": "смешанное", "whale_count": 0, "top": []}
+
+    def fake_stats(user_id):
+        return {"total": 1, "wins": 1, "win_rate": 1.0, "avg_r": 1.0,
+                "expectancy": 1.0, "total_pnl_usdt": 10.0, "best_r": 1.0, "worst_r": 1.0}
+
+    def fake_portfolio(user_id):
+        return {"balance": 10000.0, "positions": []}
+
+    saved = {
+        "get_ticker_24h": miniapp_server.get_ticker_24h,
+        "get_klines": miniapp_server.get_klines,
+        "build_brief": miniapp_server.build_brief,
+        "get_whales": miniapp_server.get_whales,
+        "journal_stats": miniapp_server.journal_stats,
+        "paper_portfolio": miniapp_server.paper_portfolio,
+    }
+    miniapp_server.get_ticker_24h = fake_ticker
+    miniapp_server.get_klines = fake_klines
+    miniapp_server.build_brief = fake_brief
+    miniapp_server.get_whales = fake_whales
+    miniapp_server.journal_stats = fake_stats
+    miniapp_server.paper_portfolio = fake_portfolio
+
+    client = None
+    try:
+        client = TestClient(TestServer(miniapp_server.create_app()))
+        await client.start_server()
+
+        r = await client.get("/")
+        if r.status != 200:
+            errors.append(f"miniapp: / вернул {r.status}")
+
+        endpoints = ["/api/market", "/api/brief", "/api/whales",
+                     "/api/journal/1", "/api/paper/1"]
+        for ep in endpoints:
+            resp = await client.get(ep)
+            if resp.status != 200:
+                errors.append(f"miniapp: {ep} вернул {resp.status}")
+                continue
+            try:
+                data = await resp.json()
+            except Exception:
+                errors.append(f"miniapp: {ep} вернул не JSON")
+                continue
+            if not isinstance(data, dict) or not data.get("ok"):
+                errors.append(f"miniapp: {ep} ok!=true ({data})")
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"miniapp: сервер упал — {exc!r}")
+    finally:
+        if client is not None:
+            await client.close()
+        for name, fn in saved.items():
+            setattr(miniapp_server, name, fn)
+
+    if len(errors) == before:
+        print(f"  {OK} сервер стартует, все /api/* отвечают 200 валидным JSON")
+
+
 async def _run() -> int:
     pairs = [("BTCUSDT", "1h"), ("ETHUSDT", "1h")]
     errors: list[str] = []
@@ -860,6 +946,7 @@ async def _run() -> int:
     _check_skeptic(errors)
     await _check_coordinator(errors)
     _check_charts(errors)
+    await _check_miniapp(errors)
 
     print()
     if errors:
