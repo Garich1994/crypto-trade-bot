@@ -54,6 +54,10 @@ def _connect() -> sqlite3.Connection:
     con = sqlite3.connect(_db_path)
     con.row_factory = sqlite3.Row
     con.execute(_SCHEMA)
+    # Миграция: пометка источника сделки (manual/testnet/live). Добавляется мягко.
+    cols = {r["name"] for r in con.execute("PRAGMA table_info(trades)")}
+    if "source" not in cols:
+        con.execute("ALTER TABLE trades ADD COLUMN source TEXT DEFAULT 'manual'")
     return con
 
 
@@ -73,13 +77,18 @@ def add_trade(
     stop: float,
     take: float,
     qty: float,
+    source: str = "manual",
 ) -> int:
-    """Записать новую открытую сделку, вернуть её id."""
+    """Записать новую открытую сделку, вернуть её id.
+
+    `source` — пометка источника: 'manual' (по умолчанию), 'testnet' или 'live'.
+    `take` может быть None (рыночный ордер без цели).
+    """
     side = _normalize_side(side)
     try:
         entry = float(entry)
         stop = float(stop)
-        take = float(take)
+        take = float(take) if take is not None else None
         qty = float(qty)
     except (TypeError, ValueError):
         raise JournalError("Цены и объём должны быть числами.")
@@ -92,9 +101,10 @@ def add_trade(
     with _connect() as con:
         cur = con.execute(
             "INSERT INTO trades "
-            "(user_id, symbol, side, entry, stop, take, qty, status, opened_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)",
-            (int(user_id), symbol.upper().strip(), side, entry, stop, take, qty, _now()),
+            "(user_id, symbol, side, entry, stop, take, qty, status, opened_at, source) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)",
+            (int(user_id), symbol.upper().strip(), side, entry, stop, take, qty,
+             _now(), str(source)),
         )
         return int(cur.lastrowid)
 
