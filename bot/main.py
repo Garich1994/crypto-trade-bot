@@ -18,8 +18,33 @@ for _stream in (sys.stdout, sys.stderr):
 
 from aiogram import Bot, Dispatcher
 
+from agents.alerts_agent import run_check
+from bot.formatting import format_alert_fired
 from bot.handlers import router
 from core.config import require_bot_token
+
+#: Период фоновой проверки подписок (Сторож), секунды.
+_ALERTS_INTERVAL = 120
+
+
+async def _alerts_loop(bot: Bot) -> None:
+    """Фоновый Сторож: каждые 120с проверяет подписки и шлёт уведомления.
+
+    Работает только пока жив процесс бота. Ошибки не роняют цикл.
+    """
+    while True:
+        try:
+            events = await run_check()
+            for event in events:
+                try:
+                    await bot.send_message(
+                        event["user_id"], format_alert_fired(event)
+                    )
+                except Exception:
+                    logging.exception("Не удалось отправить уведомление подписки")
+        except Exception:
+            logging.exception("Ошибка в цикле Сторожа")
+        await asyncio.sleep(_ALERTS_INTERVAL)
 
 
 async def main() -> None:
@@ -31,9 +56,12 @@ async def main() -> None:
     logging.info("Бот запускается (long polling)...")
     # Чистим апдейты, накопившиеся пока бот был офлайн.
     await bot.delete_webhook(drop_pending_updates=True)
+
+    alerts_task = asyncio.create_task(_alerts_loop(bot))  # Сторож
     try:
         await dp.start_polling(bot)
     finally:
+        alerts_task.cancel()
         await bot.session.close()
 
 
