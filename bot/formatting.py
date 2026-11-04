@@ -264,6 +264,71 @@ def format_open_trades(trades: list[dict]) -> str:
     return "\n".join(lines)
 
 
+PAPER_TAG = "🧪 Виртуальный портфель. Не финансовый совет."
+_REASON_RU = {"stop": "задет стоп", "take": "задет тейк", "manual": "вручную"}
+
+
+def format_paper_portfolio(data: dict) -> str:
+    """Собрать текст ответа на /paper."""
+    lines = [
+        "🧪 Виртуальный портфель",
+        "",
+        f"Свободный баланс: {_fmt_price(data['balance'])} USDT",
+    ]
+    positions = data.get("positions") or []
+    if not positions:
+        lines.append("Открытых позиций нет.")
+    else:
+        lines.append("")
+        lines.append("Открытые позиции:")
+        for p in positions:
+            side_ru = _SIDE_RU.get(p["side"], p["side"])
+            extra = []
+            if p.get("stop") is not None:
+                extra.append(f"стоп {_fmt_price(p['stop'])}")
+            if p.get("take") is not None:
+                extra.append(f"тейк {_fmt_price(p['take'])}")
+            tail = (" · " + ", ".join(extra)) if extra else ""
+            lines.append(
+                f"№{p['id']} · {p['symbol']} · {side_ru}: "
+                f"{_fmt_qty(p['qty'])} @ {_fmt_price(p['entry_price'])}{tail}"
+            )
+    lines.extend(["", PAPER_TAG])
+    return "\n".join(lines)
+
+
+def format_paper_opened(pos: dict) -> str:
+    """Собрать текст ответа на /paperbuy и /papersell."""
+    side_ru = _SIDE_RU.get(pos["side"], pos["side"])
+    extra = []
+    if pos.get("stop") is not None:
+        extra.append(f"стоп {_fmt_price(pos['stop'])}")
+    if pos.get("take") is not None:
+        extra.append(f"тейк {_fmt_price(pos['take'])}")
+    tail = ("\n" + " · ".join(extra)) if extra else ""
+    return (
+        f"🧪 Открыта виртуальная позиция №{pos['id']}: {pos['symbol']} · {side_ru}\n"
+        f"{_fmt_qty(pos['qty'])} @ {_fmt_price(pos['entry_price'])} "
+        f"(номинал {_fmt_price(pos['notional'])} USDT){tail}\n"
+        f"Свободный баланс: {_fmt_price(pos['balance_after'])} USDT\n"
+        f"Закрыть: /paperclose {pos['id']}\n\n{PAPER_TAG}"
+    )
+
+
+def format_paper_closed(result: dict) -> str:
+    """Собрать текст ответа на /paperclose и уведомления об автозакрытии."""
+    side_ru = _SIDE_RU.get(result["side"], result["side"])
+    reason = _REASON_RU.get(result.get("reason", "manual"), "")
+    reason_note = f" ({reason})" if reason and result.get("reason") != "manual" else ""
+    return (
+        f"🧪 Закрыта виртуальная позиция №{result['id']}{reason_note}: "
+        f"{result['symbol']} · {side_ru}\n"
+        f"Вход {_fmt_price(result['entry_price'])} → выход {_fmt_price(result['exit_price'])}\n"
+        f"PnL: {result['pnl_usdt']:+.2f} USDT ({result['pnl_pct']:+.2f}%)\n"
+        f"Свободный баланс: {_fmt_price(result['balance_after'])} USDT\n\n{PAPER_TAG}"
+    )
+
+
 def _cond_phrase(condition_type: str, threshold: float) -> str:
     """Человекочитаемое описание условия подписки."""
     if condition_type == "price_above":

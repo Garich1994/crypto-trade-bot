@@ -27,7 +27,16 @@ from agents.journal_agent import (
     open_trades,
     stats,
 )
+from agents.data_agent import get_ticker_24h
 from agents.news_agent import get_crypto_news
+from agents.paper_agent import (
+    PaperError,
+    close_position,
+    get_position,
+    open_position,
+    portfolio,
+    reset as paper_reset,
+)
 from agents.risk_agent import RiskError, check_risk
 from agents.scanner_agent import scan
 from agents.ta_agent import analyze
@@ -42,6 +51,9 @@ from bot.formatting import (
     format_journal,
     format_news,
     format_open_trades,
+    format_paper_closed,
+    format_paper_opened,
+    format_paper_portfolio,
     format_risk,
     format_scan,
     format_size,
@@ -78,8 +90,14 @@ START_TEXT = (
     "• /watch ПАРА тип порог — подписка на условие (одноразовая)\n"
     "   типы: price_above, price_below, rsi_above, rsi_below, change24h_abs, volume_spike\n"
     "   пример: /watch BTCUSDT price_above 81000\n"
-    "• /watches — активные подписки, /unwatch id — отменить\n\n"
-    "ℹ️ Сторож (подписки) работает только пока запущен этот бот.\n\n"
+    "• /watches — активные подписки, /unwatch id — отменить\n"
+    "• /paper — виртуальный портфель и позиции\n"
+    "• /paperbuy BTCUSDT 0.01 [стоп] [тейк] — открыть виртуальный лонг по рынку\n"
+    "• /papersell BTCUSDT 0.01 [стоп] [тейк] — открыть виртуальный шорт\n"
+    "• /paperclose id — закрыть виртуальную позицию по рынку\n"
+    "• /paperreset ДА — сбросить виртуальный портфель к 10 000\n\n"
+    "ℹ️ Сторож (подписки) работает только пока запущен этот бот.\n"
+    "🧪 Paper-режим строго виртуальный: без ключей биржи и без реальных ордеров.\n\n"
     f"{DISCLAIMER}"
 )
 
@@ -502,3 +520,113 @@ async def cmd_unwatch(message: Message, command: CommandObject) -> None:
         return
 
     await message.answer(f"🗑 Подписка №{alert_id} отменена.")
+
+
+@router.message(Command("paper"))
+async def cmd_paper(message: Message) -> None:
+    try:
+        data = portfolio(_user_id(message))
+    except Exception:
+        logger.exception("Непредвиденная ошибка в /paper")
+        await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+        return
+    await message.answer(format_paper_portfolio(data))
+
+
+async def _paper_open(message: Message, command: CommandObject, side: str) -> None:
+    args = (command.args or "").split()
+    if len(args) < 2:
+        await message.answer(
+            f"Формат: /{'paperbuy' if side == 'long' else 'papersell'} ПАРА объём [стоп] [тейк]\n"
+            f"Пример: /{'paperbuy' if side == 'long' else 'papersell'} BTCUSDT 0.01"
+        )
+        return
+
+    symbol = args[0].upper()
+    try:
+        qty = float(args[1].replace(",", "."))
+        stop = float(args[2].replace(",", ".")) if len(args) > 2 else None
+        take = float(args[3].replace(",", ".")) if len(args) > 3 else None
+    except ValueError:
+        await message.answer("Объём, стоп и тейк должны быть числами.")
+        return
+
+    try:
+        ticker = await get_ticker_24h(symbol)
+        price = float(ticker["lastPrice"])
+        pos = open_position(_user_id(message), symbol, side, qty, price, stop, take)
+    except (PaperError, DataAgentError) as exc:
+        await message.answer(f"Не получилось: {exc}")
+        return
+    except Exception:
+        logger.exception("Непредвиденная ошибка в /paperbuy|/papersell")
+        await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+        return
+
+    await message.answer(format_paper_opened(pos))
+
+
+@router.message(Command("paperbuy"))
+async def cmd_paperbuy(message: Message, command: CommandObject) -> None:
+    await _paper_open(message, command, "long")
+
+
+@router.message(Command("papersell"))
+async def cmd_papersell(message: Message, command: CommandObject) -> None:
+    await _paper_open(message, command, "short")
+
+
+@router.message(Command("paperclose"))
+async def cmd_paperclose(message: Message, command: CommandObject) -> None:
+    args = (command.args or "").split()
+    if not args:
+        await message.answer("Формат: /paperclose id\nПример: /paperclose 1")
+        return
+
+    try:
+        position_id = int(args[0])
+    except ValueError:
+        await message.answer("id позиции — целое число. Пример: /paperclose 1")
+        return
+
+    pos = get_position(_user_id(message), position_id)
+    if pos is None or pos["status"] != "open":
+        await message.answer(f"Не получилось: открытая позиция №{position_id} не найдена.")
+        return
+
+    try:
+        ticker = await get_ticker_24h(pos["symbol"])
+        price = float(ticker["lastPrice"])
+        result = close_position(_user_id(message), position_id, price)
+    except (PaperError, DataAgentError) as exc:
+        await message.answer(f"Не получилось: {exc}")
+        return
+    except Exception:
+        logger.exception("Непредвиденная ошибка в /paperclose")
+        await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+        return
+
+    await message.answer(format_paper_closed(result))
+
+
+@router.message(Command("paperreset"))
+async def cmd_paperreset(message: Message, command: CommandObject) -> None:
+    confirm = (command.args or "").strip().upper()
+    if confirm != "ДА":
+        await message.answer(
+            "Сброс виртуального портфеля к 10 000 USDT (позиции будут удалены).\n"
+            "Для подтверждения отправь: /paperreset ДА"
+        )
+        return
+
+    try:
+        balance = paper_reset(_user_id(message))
+    except Exception:
+        logger.exception("Непредвиденная ошибка в /paperreset")
+        await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+        return
+
+    await message.answer(
+        f"🧪 Виртуальный портфель сброшен. Баланс: {balance:.2f} USDT.\n\n"
+        "🧪 Виртуальный портфель. Не финансовый совет."
+    )
