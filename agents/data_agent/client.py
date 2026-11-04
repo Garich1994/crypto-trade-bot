@@ -177,6 +177,14 @@ async def get_ticker_24h(symbol: str) -> dict:
     return data
 
 
+async def get_all_tickers_24h() -> list[dict]:
+    """24-часовая статистика по всем парам (для выбора вселенной сканером)."""
+    data = await _request(SPOT_HOSTS, "/api/v3/ticker/24hr", {})
+    if not isinstance(data, list):
+        raise DataAgentError("Неожиданный ответ списка тикеров от Binance.")
+    return data
+
+
 async def get_funding_rate(symbol: str) -> float | None:
     """Текущий funding rate (фьючерсы USDT-M), в долях.
 

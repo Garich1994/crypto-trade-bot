@@ -1,5 +1,6 @@
 from agents.data_agent.client import (
     DataAgentError,
+    get_all_tickers_24h,
     get_funding_rate,
     get_klines,
     get_klines_history,
@@ -11,5 +12,6 @@ __all__ = [
     "get_klines",
     "get_klines_history",
     "get_ticker_24h",
+    "get_all_tickers_24h",
     "get_funding_rate",
 ]
