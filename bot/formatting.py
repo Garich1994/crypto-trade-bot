@@ -265,6 +265,55 @@ def format_open_trades(trades: list[dict]) -> str:
 
 
 PAPER_TAG = "🧪 Виртуальный портфель. Не финансовый совет."
+_WHALE_SIDE_RU = {"buy": "покупка", "sell": "продажа"}
+_PRESSURE_RU = {
+    "покупки": "покупки преобладают",
+    "продажи": "продажи преобладают",
+    "смешанное": "смешанное",
+    "нет китовых сделок": "китовых сделок не найдено",
+}
+
+
+def _fmt_usdt_short(value: float) -> str:
+    """Компактный формат крупных сумм USDT."""
+    if value >= 1_000_000:
+        return f"{value / 1_000_000:.2f}M"
+    if value >= 1_000:
+        return f"{value / 1_000:.1f}K"
+    return f"{value:.0f}"
+
+
+def format_whales(result: dict) -> str:
+    """Собрать текст ответа на /whales."""
+    thr = _fmt_usdt_short(result["threshold"])
+    header = (
+        f"🐋 Киты {result['symbol']} · порог ≥ {thr} USDT · "
+        f"окно ~{result['window_minutes']:.0f} мин (по 1000 сделкам)"
+    )
+    if result["whale_count"] == 0:
+        return (
+            f"{header}\n\nКитовых сделок в окне не найдено.\n\n"
+            "Китовые сделки — факт прошлого, не рекомендация."
+        )
+
+    lines = [
+        header,
+        "",
+        f"Китовых сделок: {result['whale_count']}",
+        f"Покупки: {_fmt_usdt_short(result['buy_notional'])} USDT · "
+        f"Продажи: {_fmt_usdt_short(result['sell_notional'])} USDT",
+        f"Давление: {_PRESSURE_RU.get(result['pressure'], result['pressure'])}",
+        "",
+        "Топ крупнейших:",
+    ]
+    for w in result["top"]:
+        side_ru = _WHALE_SIDE_RU.get(w["side"], w["side"])
+        lines.append(
+            f"• {side_ru}: {_fmt_qty(w['qty'])} @ {_fmt_price(w['price'])} "
+            f"(~{_fmt_usdt_short(w['notional'])} USDT)"
+        )
+    lines.extend(["", "Китовые сделки — факт прошлого, не рекомендация."])
+    return "\n".join(lines)
 _REASON_RU = {"stop": "задет стоп", "take": "задет тейк", "manual": "вручную"}
 
 

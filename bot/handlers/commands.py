@@ -40,6 +40,7 @@ from agents.paper_agent import (
 from agents.risk_agent import RiskError, check_risk
 from agents.scanner_agent import scan
 from agents.ta_agent import analyze
+from agents.whale_agent import LIQUIDATIONS_NOTE, get_whales
 from agents.ta_agent.analyzer import DEFAULT_TIMEFRAME
 from bot.formatting import (
     DISCLAIMER,
@@ -59,6 +60,7 @@ from bot.formatting import (
     format_size,
     format_trade_closed,
     format_watches,
+    format_whales,
 )
 
 logger = logging.getLogger(__name__)
@@ -95,7 +97,9 @@ START_TEXT = (
     "• /paperbuy BTCUSDT 0.01 [стоп] [тейк] — открыть виртуальный лонг по рынку\n"
     "• /papersell BTCUSDT 0.01 [стоп] [тейк] — открыть виртуальный шорт\n"
     "• /paperclose id — закрыть виртуальную позицию по рынку\n"
-    "• /paperreset ДА — сбросить виртуальный портфель к 10 000\n\n"
+    "• /paperreset ДА — сбросить виртуальный портфель к 10 000\n"
+    "• /whales [ПАРА] — крупные (китовые) сделки на споте за недавнее окно\n"
+    "• /liquidations — о ликвидациях фьючерсов (недоступны из региона)\n\n"
     "ℹ️ Сторож (подписки) работает только пока запущен этот бот.\n"
     "🧪 Paper-режим строго виртуальный: без ключей биржи и без реальных ордеров.\n\n"
     f"{DISCLAIMER}"
@@ -630,3 +634,26 @@ async def cmd_paperreset(message: Message, command: CommandObject) -> None:
         f"🧪 Виртуальный портфель сброшен. Баланс: {balance:.2f} USDT.\n\n"
         "🧪 Виртуальный портфель. Не финансовый совет."
     )
+
+
+@router.message(Command("whales"))
+async def cmd_whales(message: Message, command: CommandObject) -> None:
+    args = (command.args or "").split()
+    symbol = args[0].upper() if args else "BTCUSDT"
+
+    try:
+        result = await get_whales(symbol)
+    except DataAgentError as exc:
+        await message.answer(f"Не получилось: {exc}")
+        return
+    except Exception:
+        logger.exception("Непредвиденная ошибка в /whales")
+        await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+        return
+
+    await message.answer(format_whales(result))
+
+
+@router.message(Command("liquidations"))
+async def cmd_liquidations(message: Message) -> None:
+    await message.answer(LIQUIDATIONS_NOTE)
