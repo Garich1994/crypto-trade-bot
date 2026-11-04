@@ -17,10 +17,12 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 from agents.backtest_agent import BacktestError, backtest
+from agents.budget_agent import calc_position
 from agents.data_agent import DataAgentError, get_klines, get_klines_history
 from agents.entry_agent import EntryError, score_entry
 from agents.exit_agent import ExitError, plan_exit
 from agents.news_agent import get_crypto_news
+from agents.risk_agent import check_risk
 from agents.scanner_agent import scan
 from agents.ta_agent import analyze
 from bot.formatting import (
@@ -31,7 +33,9 @@ from bot.formatting import (
     format_entry,
     format_exit,
     format_news,
+    format_risk,
     format_scan,
+    format_size,
 )
 
 OK = "\033[92m[OK]\033[0m"
@@ -282,6 +286,56 @@ async def _check_exit(errors: list[str]) -> None:
         print("  --------------------------")
 
 
+def _check_size(errors: list[str]) -> None:
+    """Размер позиции: risk_usdt==100, qty≈0.125 для (10000,1,80300,79500)."""
+    print("\n— Проверяю размер позиции (10000, 1%, 80300/79500) …")
+    result = calc_position(10000, 1, 80300, 79500)
+
+    before = len(errors)
+    if abs(result["risk_usdt"] - 100.0) > 1e-6:
+        errors.append(f"size: risk_usdt != 100 ({result['risk_usdt']!r})")
+    if abs(result["qty"] - 0.125) > 1e-6:
+        errors.append(f"size: qty != 0.125 ({result['qty']!r})")
+
+    message = format_size(result)
+    if not message.strip():
+        errors.append("size: сообщение не сформировалось")
+    _check_forbidden(message, "size", errors)
+
+    if len(errors) == before:
+        print(f"  {OK} risk_usdt={result['risk_usdt']:.2f}, qty={result['qty']}, текст ок")
+        print("  ----- превью ответа -----")
+        for line in message.splitlines():
+            print(f"  {line}")
+        print("  --------------------------")
+
+
+def _check_risk(errors: list[str]) -> None:
+    """Риск-лимиты: risk_pct=5 должен дать предупреждение (не 'в пределах лимитов')."""
+    print("\n— Проверяю риск-лимиты (10000, 5%, 2 сделки) …")
+    result = check_risk(10000, 5, 2)
+
+    before = len(errors)
+    if result["per_trade_ok"]:
+        errors.append("risk: risk_pct=5 ошибочно признан в норме (ожидалось предупреждение)")
+    if result["verdict"] == "В пределах лимитов.":
+        errors.append("risk: при risk_pct=5 вердикт не должен быть 'в пределах лимитов'")
+    if not str(result.get("advice", "")).strip():
+        errors.append("risk: пустой совет")
+
+    message = format_risk(result)
+    if not message.strip():
+        errors.append("risk: сообщение не сформировалось")
+    _check_forbidden(message, "risk", errors)
+
+    if len(errors) == before:
+        print(f"  {OK} предупреждение есть: «{result['verdict']}», текст ок")
+        print("  ----- превью ответа -----")
+        for line in message.splitlines():
+            print(f"  {line}")
+        print("  --------------------------")
+
+
 async def _run() -> int:
     pairs = [("BTCUSDT", "1h"), ("ETHUSDT", "1h")]
     errors: list[str] = []
@@ -311,6 +365,8 @@ async def _run() -> int:
     await _check_news(errors)
     await _check_entry(errors)
     await _check_exit(errors)
+    _check_size(errors)
+    _check_risk(errors)
 
     print()
     if errors:
