@@ -17,7 +17,9 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 from agents.backtest_agent import BacktestError, backtest
-from agents.data_agent import DataAgentError, get_klines_history
+from agents.data_agent import DataAgentError, get_klines, get_klines_history
+from agents.entry_agent import EntryError, score_entry
+from agents.exit_agent import ExitError, plan_exit
 from agents.news_agent import get_crypto_news
 from agents.scanner_agent import scan
 from agents.ta_agent import analyze
@@ -26,6 +28,8 @@ from bot.formatting import (
     DISCLAIMER_BACKTEST,
     format_analysis,
     format_backtest,
+    format_entry,
+    format_exit,
     format_news,
     format_scan,
 )
@@ -43,7 +47,7 @@ REQUIRED_NESTED = {
     "bollinger": ("upper", "middle", "lower"),
 }
 # Запрещённые слова в пользовательском тексте (нейтральность).
-FORBIDDEN_WORDS = ("покупай", "продавай", "сигнал")
+FORBIDDEN_WORDS = ("покупай", "продавай", "сигнал", "входи")
 
 
 def _is_number(value) -> bool:
@@ -211,6 +215,73 @@ async def _check_news(errors: list[str]) -> None:
         print(f"  {OK} новости: {len(items)} шт.{note}")
 
 
+async def _check_entry(errors: list[str]) -> None:
+    """Скоринг входа: score в [0,100], непустые factors, нет запрещённых слов."""
+    print("\n— Проверяю скоринг входа BTCUSDT long (1h) …")
+    try:
+        result = await score_entry("BTCUSDT", "1h", "long")
+    except (EntryError, DataAgentError) as exc:
+        errors.append(f"entry: {exc}")
+        print(f"  {FAIL} {exc}")
+        return
+
+    before = len(errors)
+    score = result.get("score")
+    if not (isinstance(score, int) and 0 <= score <= 100):
+        errors.append(f"entry: score вне [0,100] ({score!r})")
+    if not result.get("factors"):
+        errors.append("entry: factors пустые")
+    if not str(result.get("summary", "")).strip():
+        errors.append("entry: summary пустой")
+
+    message = format_entry(result)
+    if not message.strip():
+        errors.append("entry: сообщение не сформировалось")
+    _check_forbidden(message, "entry", errors)
+
+    if len(errors) == before:
+        print(f"  {OK} score={score}, факторов {len(result['factors'])}, текст ок")
+        print("  ----- превью ответа -----")
+        for line in message.splitlines():
+            print(f"  {line}")
+        print("  --------------------------")
+
+
+async def _check_exit(errors: list[str]) -> None:
+    """План выхода: для лонга stop < entry < take1 < take2, нет запрещённых слов."""
+    print("\n— Проверяю план выхода BTCUSDT long (1h) …")
+    try:
+        raw = await get_klines("BTCUSDT", "1h", limit=5)
+        entry = float(raw[-1][4])  # реалистичный вход = последняя цена
+        result = await plan_exit("BTCUSDT", "1h", "long", entry)
+    except (ExitError, DataAgentError) as exc:
+        errors.append(f"exit: {exc}")
+        print(f"  {FAIL} {exc}")
+        return
+
+    before = len(errors)
+    stop, e, t1, t2 = result["stop"], result["entry"], result["take1"], result["take2"]
+    if not (stop < e < t1 < t2):
+        errors.append(
+            f"exit: нарушен порядок уровней (stop={stop}, entry={e}, t1={t1}, t2={t2})"
+        )
+    for key in ("rr1", "rr2"):
+        if not _is_number(result.get(key)):
+            errors.append(f"exit: {key} не число ({result.get(key)!r})")
+
+    message = format_exit(result)
+    if not message.strip():
+        errors.append("exit: сообщение не сформировалось")
+    _check_forbidden(message, "exit", errors)
+
+    if len(errors) == before:
+        print(f"  {OK} уровни корректны: stop < entry < take1 < take2, текст ок")
+        print("  ----- превью ответа -----")
+        for line in message.splitlines():
+            print(f"  {line}")
+        print("  --------------------------")
+
+
 async def _run() -> int:
     pairs = [("BTCUSDT", "1h"), ("ETHUSDT", "1h")]
     errors: list[str] = []
@@ -238,6 +309,8 @@ async def _run() -> int:
     await _check_backtest(errors)
     await _check_scan(errors)
     await _check_news(errors)
+    await _check_entry(errors)
+    await _check_exit(errors)
 
     print()
     if errors:
