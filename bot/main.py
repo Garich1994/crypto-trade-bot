@@ -28,6 +28,7 @@ from agents.paper_agent import run_paper_check
 from bot.formatting import format_alert_fired, format_brief, format_paper_closed
 from bot.handlers import router
 from core.config import require_bot_token
+from miniapp import start_miniapp
 
 #: Период фоновой проверки подписок (Сторож), секунды.
 _ALERTS_INTERVAL = 120
@@ -94,11 +95,21 @@ async def main() -> None:
 
     alerts_task = asyncio.create_task(_alerts_loop(bot))  # Сторож
     brief_task = asyncio.create_task(_brief_loop(bot))    # Автодайджест
+
+    miniapp_runner = None
+    try:
+        miniapp_runner = await start_miniapp()  # веб-дашборд на :8080
+        logging.info("Дашборд запущен на http://localhost:8080")
+    except Exception:
+        logging.exception("Не удалось запустить дашборд (бот продолжит работу)")
+
     try:
         await dp.start_polling(bot)
     finally:
         alerts_task.cancel()
         brief_task.cancel()
+        if miniapp_runner is not None:
+            await miniapp_runner.cleanup()
         await bot.session.close()
 
 

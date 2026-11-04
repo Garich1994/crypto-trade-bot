@@ -6,7 +6,12 @@ import os
 
 from aiogram import Router
 from aiogram.filters import Command, CommandObject, CommandStart
-from aiogram.types import FSInputFile, Message
+from aiogram.types import (
+    FSInputFile,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 from agents.alerts_agent import (
     CONDITION_TYPES,
@@ -51,6 +56,7 @@ from agents.skeptic_agent import SkepticError, skeptic
 from agents.ta_agent import analyze
 from agents.whale_agent import LIQUIDATIONS_NOTE, get_whales
 from agents.ta_agent.analyzer import DEFAULT_TIMEFRAME
+from miniapp import DASHBOARD_URL
 from bot.formatting import (
     DISCLAIMER,
     format_alert_added,
@@ -115,7 +121,8 @@ START_TEXT = (
     "• /whales [ПАРА] — крупные (китовые) сделки на споте за недавнее окно\n"
     "• /liquidations — о ликвидациях фьючерсов (недоступны из региона)\n"
     "• /brief — автобриф по рынку (новости + топ идеи + риск-гейт)\n"
-    "• /autobrief on [часы] | off — авторассылка брифа каждые N часов (по умолчанию 4)\n\n"
+    "• /autobrief on [часы] | off — авторассылка брифа каждые N часов (по умолчанию 4)\n"
+    "• /dashboard — ссылка на веб-дашборд (демо на этом ПК)\n\n"
     "ℹ️ Сторож (подписки) работает только пока запущен этот бот.\n"
     "🧪 Paper-режим строго виртуальный: без ключей биржи и без реальных ордеров.\n\n"
     f"{DISCLAIMER}"
@@ -719,6 +726,25 @@ async def cmd_chart(message: Message, command: CommandObject) -> None:
 @router.message(Command("liquidations"))
 async def cmd_liquidations(message: Message) -> None:
     await message.answer(LIQUIDATIONS_NOTE)
+
+
+@router.message(Command("dashboard"))
+async def cmd_dashboard(message: Message) -> None:
+    text = (
+        "📊 Веб-дашборд CryptoPilot.\n"
+        "ℹ️ Демо работает на этом ПК. Чтобы открывать прямо из Telegram как Mini App, "
+        "нужен HTTPS-хостинг — это следующий шаг."
+    )
+    try:
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="Открыть дашборд", url=DASHBOARD_URL)]
+            ]
+        )
+        await message.answer(text, reply_markup=kb)
+    except Exception:
+        # Telegram может не принять localhost-URL в кнопке — отдаём ссылкой текстом.
+        await message.answer(f"{text}\n\nАдрес: {DASHBOARD_URL}")
 
 
 @router.message(Command("brief"))
