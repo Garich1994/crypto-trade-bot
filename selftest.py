@@ -28,6 +28,14 @@ from agents.alerts_agent import (
 from agents.alerts_agent import set_db_path as set_alerts_db
 from agents.backtest_agent import BacktestError, backtest
 from agents.budget_agent import calc_position
+import agents.coordinator_agent.pipeline as coord_pipeline
+from agents.coordinator_agent import (
+    build_brief,
+    due_subscriptions,
+    get_autobrief,
+    set_autobrief,
+)
+from agents.coordinator_agent import set_db_path as set_brief_db
 from agents.data_agent import DataAgentError, get_klines, get_klines_history
 from agents.entry_agent import EntryError, score_entry
 from agents.exit_agent import ExitError, plan_exit
@@ -59,6 +67,7 @@ from bot.formatting import (
     format_alert_fired,
     format_analysis,
     format_backtest,
+    format_brief,
     format_entry,
     format_exit,
     format_journal,
@@ -658,6 +667,112 @@ def _check_skeptic(errors: list[str]) -> None:
         print("  --------------------------")
 
 
+async def _check_coordinator(errors: list[str]) -> None:
+    """Координатор end-to-end на мок-функциях: FAIL-идеи отсеиваются, dict валиден."""
+    print("\n— Проверяю Координатор (мок-цепочка) …")
+    before = len(errors)
+
+    async def fake_scan(tf, n):
+        return [
+            {"symbol": "AAAUSDT", "patterns": ["x"], "change_24h": 9.0},
+            {"symbol": "BBBUSDT", "patterns": ["y"], "change_24h": 6.0},
+        ]
+
+    async def fake_analyze(symbol, tf):
+        return {
+            "price": 80000.0,
+            "ema": {"ema200": 75000.0},
+            "change_24h": 5.0,
+            "trend": "восходящий",
+            "rsi": 80.0 if symbol == "AAAUSDT" else 55.0,
+        }
+
+    async def fake_score(symbol, tf, side):
+        return {"score": 40 if symbol == "AAAUSDT" else 60, "factors": [], "summary": ""}
+
+    async def fake_exit(symbol, tf, side, price):
+        return {"stop": 78500.0, "take1": 83000.0, "take2": 85000.0, "rr1": 2.0, "rr2": 3.0}
+
+    async def fake_skeptic(symbol, side, entry, stop, take):
+        rsi_fail = symbol == "AAAUSDT"
+        checks = [
+            {"name": "RSI против направления",
+             "status": "FAIL" if rsi_fail else "PASS", "detail": "RSI проверка"},
+            {"name": "Стоп vs волатильность", "status": "PASS", "detail": "стоп ок"},
+            {"name": "Уровни против", "status": "PASS", "detail": "уровни ок"},
+            {"name": "Участие объёма", "status": "PASS", "detail": "объём ок"},
+            {"name": "Тренд против", "status": "PASS", "detail": "тренд ок"},
+        ]
+        passed = sum(1 for c in checks if c["status"] == "PASS")
+        weak = [c["detail"] for c in checks if c["status"] == "FAIL"]
+        return {"checks": checks, "passed": passed, "total": len(checks), "weak_points": weak}
+
+    async def fake_news(n):
+        return [{"title": "Заголовок", "source": "CoinDesk", "time": None, "url": "u"}]
+
+    saved = {
+        name: getattr(coord_pipeline, name)
+        for name in ("scan", "analyze", "score_entry", "plan_exit", "skeptic", "get_crypto_news")
+    }
+    coord_pipeline.scan = fake_scan
+    coord_pipeline.analyze = fake_analyze
+    coord_pipeline.score_entry = fake_score
+    coord_pipeline.plan_exit = fake_exit
+    coord_pipeline.skeptic = fake_skeptic
+    coord_pipeline.get_crypto_news = fake_news
+    try:
+        brief = await build_brief(top=5)
+    finally:
+        for name, fn in saved.items():
+            setattr(coord_pipeline, name, fn)
+
+    if not isinstance(brief, dict):
+        errors.append("coordinator: build_brief вернул не dict")
+    else:
+        for key in ("generated_at", "market_summary", "news", "ideas", "filtered_out"):
+            if key not in brief:
+                errors.append(f"coordinator: нет ключа '{key}'")
+        idea_syms = [i["symbol"] for i in brief.get("ideas", [])]
+        filt_syms = [f["symbol"] for f in brief.get("filtered_out", [])]
+        if "BBBUSDT" not in idea_syms:
+            errors.append("coordinator: годная идея не попала в ideas")
+        if "AAAUSDT" not in filt_syms or "AAAUSDT" in idea_syms:
+            errors.append("coordinator: FAIL-идея не отсеяна риск-гейтом")
+        for i in brief.get("ideas", []):
+            for f in ("symbol", "side", "score", "entry", "stop", "take1", "take2"):
+                if f not in i:
+                    errors.append(f"coordinator: в идее нет поля '{f}'")
+
+        text = format_brief(brief, auto=True)
+        if "Автодайджест" not in text:
+            errors.append("coordinator: в автодайджесте нет честной шапки")
+        _check_forbidden(text, "coordinator", errors)
+
+    # Подписки на автодайджест (временная БД).
+    tmp_dir = tempfile.mkdtemp(prefix="brief_selftest_")
+    try:
+        set_brief_db(f"{tmp_dir}/brief.db")
+        uid = 111
+        set_autobrief(uid, True, 4)
+        sub = get_autobrief(uid)
+        if not sub or not sub["active"] or abs(sub["interval_h"] - 4) > 1e-9:
+            errors.append("coordinator: подписка не создалась")
+        if uid not in due_subscriptions():
+            errors.append("coordinator: новая подписка не считается due")
+        set_autobrief(uid, False)
+        if uid in due_subscriptions():
+            errors.append("coordinator: выключенная подписка осталась due")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    if len(errors) == before:
+        print(f"  {OK} цепочка end-to-end, FAIL отсеян, dict валиден, подписка ок")
+        print("  ----- превью ответа -----")
+        for line in format_brief(brief, auto=True).splitlines():
+            print(f"  {line}")
+        print("  --------------------------")
+
+
 async def _run() -> int:
     pairs = [("BTCUSDT", "1h"), ("ETHUSDT", "1h")]
     errors: list[str] = []
@@ -694,6 +809,7 @@ async def _run() -> int:
     await _check_paper(errors)
     _check_whales(errors)
     _check_skeptic(errors)
+    await _check_coordinator(errors)
 
     print()
     if errors:
