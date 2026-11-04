@@ -18,6 +18,14 @@ for _stream in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
+from agents.alerts_agent import (
+    add_alert,
+    evaluate_condition,
+    list_alerts,
+    remove_alert,
+    run_check,
+)
+from agents.alerts_agent import set_db_path as set_alerts_db
 from agents.backtest_agent import BacktestError, backtest
 from agents.budget_agent import calc_position
 from agents.data_agent import DataAgentError, get_klines, get_klines_history
@@ -37,6 +45,7 @@ from agents.ta_agent import analyze
 from bot.formatting import (
     DISCLAIMER,
     DISCLAIMER_BACKTEST,
+    format_alert_fired,
     format_analysis,
     format_backtest,
     format_entry,
@@ -403,6 +412,75 @@ def _check_journal(errors: list[str]) -> None:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+async def _check_alerts(errors: list[str]) -> None:
+    """Сторож на мок-данных: срабатывание при пересечении, отмена, изоляция."""
+    print("\n— Проверяю Сторож (мок-данные, временная БД) …")
+    tmp_dir = tempfile.mkdtemp(prefix="alerts_selftest_")
+    uid, other = 111, 222
+    before = len(errors)
+
+    # Подменяем источник метрик — без обращения к сети.
+    price_box = {"price": 80000.0, "change24h": 2.0}
+
+    async def fake_fetch(symbol, need_klines):
+        return dict(price_box)
+
+    try:
+        set_alerts_db(f"{tmp_dir}/alerts.db")
+
+        a = add_alert(uid, "BTCUSDT", "price_above", 81000)
+        if len(list_alerts(uid)) != 1:
+            errors.append("alerts: подписка не создалась")
+
+        # Чистая проверка условия: порог не пересечён.
+        fired, _ = evaluate_condition("price_above", 81000, {"price": 80000})
+        if fired:
+            errors.append("alerts: сработало без пересечения порога")
+        fired, actual = evaluate_condition("price_above", 81000, {"price": 81042})
+        if not fired or actual != 81042:
+            errors.append("alerts: не сработало при пересечении порога")
+
+        # run_check без пересечения — событий нет, подписка активна.
+        events = await run_check(fetcher=fake_fetch)
+        if events:
+            errors.append("alerts: run_check сработал без пересечения")
+        if len(list_alerts(uid)) != 1:
+            errors.append("alerts: подписка пропала раньше времени")
+
+        # Цена пересекла порог — ровно одно событие, подписка гасится.
+        price_box["price"] = 81042.0
+        events = await run_check(fetcher=fake_fetch)
+        if len(events) != 1 or events[0]["symbol"] != "BTCUSDT":
+            errors.append(f"alerts: ожидалось 1 событие, получено {events}")
+        if list_alerts(uid):
+            errors.append("alerts: подписка не погашена после срабатывания")
+
+        # Изоляция: чужую подписку нельзя отменить.
+        b = add_alert(uid, "ETHUSDT", "rsi_below", 30)
+        try:
+            remove_alert(other, b["id"])
+            errors.append("alerts: чужую подписку удалось отменить")
+        except Exception:
+            pass
+        if len(list_alerts(other)) != 0:
+            errors.append("alerts: нарушена изоляция пользователей")
+        remove_alert(uid, b["id"])
+        if list_alerts(uid):
+            errors.append("alerts: /unwatch не удалил подписку")
+
+        if events:
+            _check_forbidden(format_alert_fired(events[0]), "alerts", errors)
+
+        if len(errors) == before:
+            print(f"  {OK} подписка/срабатывание/отмена/изоляция — ок")
+            if events:
+                print("  ----- превью уведомления -----")
+                print("  " + format_alert_fired(events[0]))
+                print("  -------------------------------")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
 async def _run() -> int:
     pairs = [("BTCUSDT", "1h"), ("ETHUSDT", "1h")]
     errors: list[str] = []
@@ -435,6 +513,7 @@ async def _run() -> int:
     _check_size(errors)
     _check_risk(errors)
     _check_journal(errors)
+    await _check_alerts(errors)
 
     print()
     if errors:
