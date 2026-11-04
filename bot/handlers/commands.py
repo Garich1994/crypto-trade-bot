@@ -10,9 +10,17 @@ from aiogram.types import Message
 from agents.backtest_agent import BacktestError, backtest
 from agents.data_agent import DataAgentError
 from agents.data_agent.client import ALLOWED_INTERVALS
+from agents.news_agent import get_crypto_news
+from agents.scanner_agent import scan
 from agents.ta_agent import analyze
 from agents.ta_agent.analyzer import DEFAULT_TIMEFRAME
-from bot.formatting import DISCLAIMER, format_analysis, format_backtest
+from bot.formatting import (
+    DISCLAIMER,
+    format_analysis,
+    format_backtest,
+    format_news,
+    format_scan,
+)
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -26,7 +34,9 @@ START_TEXT = (
     f"   таймфреймы: {', '.join(ALLOWED_INTERVALS)} (по умолчанию {DEFAULT_TIMEFRAME})\n"
     "   пример: /analyze ETHUSDT 4h\n"
     "• /backtest BTCUSDT long вход стоп тейк [таймфрейм] — прогон уровней по истории\n"
-    "   пример: /backtest BTCUSDT long 80000 78000 84000 1h\n\n"
+    "   пример: /backtest BTCUSDT long 80000 78000 84000 1h\n"
+    "• /scan [таймфрейм] — обзор топ-30 USDT-пар и подсветка ситуаций\n"
+    "• /news — свежие крипто-новости\n\n"
     f"{DISCLAIMER}"
 )
 
@@ -106,3 +116,42 @@ async def cmd_backtest(message: Message, command: CommandObject) -> None:
         return
 
     await message.answer(format_backtest(result))
+
+
+@router.message(Command("scan"))
+async def cmd_scan(message: Message, command: CommandObject) -> None:
+    args = (command.args or "").split()
+    timeframe = args[0].lower() if args else DEFAULT_TIMEFRAME
+    if timeframe not in ALLOWED_INTERVALS:
+        await message.answer(
+            f"Неподдерживаемый таймфрейм. Доступны: {', '.join(ALLOWED_INTERVALS)}."
+        )
+        return
+
+    await message.answer("🔭 Сканирую топ-30, это займёт около минуты…")
+
+    try:
+        findings = await scan(timeframe=timeframe, top_n=30)
+    except DataAgentError as exc:
+        await message.answer(f"Не получилось: {exc}")
+        return
+    except Exception:
+        logger.exception("Непредвиденная ошибка в /scan")
+        await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+        return
+
+    await message.answer(format_scan(findings, timeframe, top=10))
+
+
+@router.message(Command("news"))
+async def cmd_news(message: Message) -> None:
+    try:
+        items = await get_crypto_news(limit=5)
+    except Exception:
+        logger.exception("Непредвиденная ошибка в /news")
+        await message.answer(
+            "Не удалось получить новости. Попробуй позже."
+        )
+        return
+
+    await message.answer(format_news(items))

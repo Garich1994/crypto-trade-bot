@@ -4,6 +4,8 @@
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 DISCLAIMER = "⚠️ Не финансовый совет. Это аналитика, решение — за тобой."
 DISCLAIMER_BACKTEST = (
     "⚠️ Не финансовый совет. Прошлое не гарантирует будущего, решение — за тобой."
@@ -85,4 +87,59 @@ def format_backtest(result: dict) -> str:
         "",
         DISCLAIMER_BACKTEST,
     ]
+    return "\n".join(lines)
+
+
+def _fmt_change(change: float | None) -> str:
+    if change is None:
+        return "н/д"
+    sign = "+" if change >= 0 else ""
+    return f"{sign}{change:.2f}%"
+
+
+def format_scan(findings: list[dict], timeframe: str, top: int = 10) -> str:
+    """Собрать текст ответа на /scan (топ находок сканера)."""
+    header = f"🔭 Скан рынка · таймфрейм {timeframe}"
+    if not findings:
+        return (
+            f"{header}\n\nСейчас по топ-парам ярких ситуаций не найдено.\n\n{DISCLAIMER}"
+        )
+
+    lines = [header, f"Найдено ситуаций: {len(findings)} (показаны топ-{min(top, len(findings))})", ""]
+    for f in findings[:top]:
+        lines.append(
+            f"• {f['symbol']}: {_fmt_price(f['price'])} "
+            f"({_fmt_change(f['change_24h'])})\n"
+            f"   {', '.join(f['patterns'])}"
+        )
+    lines.extend(["", DISCLAIMER])
+    return "\n".join(lines)
+
+
+def _ago(dt: datetime) -> str:
+    """Человекочитаемое «сколько назад» для времени в UTC."""
+    delta = datetime.now(timezone.utc) - dt
+    minutes = int(delta.total_seconds() // 60)
+    if minutes < 1:
+        return "только что"
+    if minutes < 60:
+        return f"{minutes} мин назад"
+    hours = minutes // 60
+    return f"{hours} ч назад"
+
+
+def format_news(items: list[dict]) -> str:
+    """Собрать текст ответа на /news."""
+    if not items:
+        return (
+            "📰 Свежих новостей за последние 24 часа не нашлось "
+            "(или источники сейчас недоступны)."
+        )
+    lines = ["📰 Свежие крипто-новости:", ""]
+    for it in items:
+        lines.append(
+            f"• {it['title']}\n"
+            f"   {it['source']} · {_ago(it['time'])}\n"
+            f"   {it['url']}"
+        )
     return "\n".join(lines)
