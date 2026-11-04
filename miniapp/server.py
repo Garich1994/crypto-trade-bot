@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from aiohttp import web
@@ -19,9 +20,12 @@ from agents.whale_agent import get_whales
 
 _INDEX = Path(__file__).resolve().parent / "index.html"
 
-HOST = "0.0.0.0"
-PORT = 8080
-DASHBOARD_URL = f"http://localhost:{PORT}"
+# Хост/порт берём из окружения (удобно для Docker).
+HOST = os.environ.get("MINIAPP_HOST", "0.0.0.0")
+PORT = int(os.environ.get("MINIAPP_PORT", "8080"))
+# Если задан DOMAIN (прод за HTTPS) — ссылка на дашборд идёт на него, иначе локально.
+_DOMAIN = os.environ.get("DOMAIN", "").strip()
+DASHBOARD_URL = f"https://{_DOMAIN}" if _DOMAIN else f"http://localhost:{PORT}"
 
 #: Монеты рынка на дашборде.
 _MARKET_SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT")
@@ -37,6 +41,11 @@ def _resp(data, status: int = 200) -> web.Response:
 
 async def index(request: web.Request) -> web.Response:
     return web.FileResponse(_INDEX)
+
+
+async def healthz(request: web.Request) -> web.Response:
+    """Проверка живости для хостинга/мониторинга."""
+    return _resp({"ok": True})
 
 
 async def api_market(request: web.Request) -> web.Response:
@@ -94,6 +103,7 @@ async def api_paper(request: web.Request) -> web.Response:
 def create_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", index)
+    app.router.add_get("/healthz", healthz)
     app.router.add_get("/api/market", api_market)
     app.router.add_get("/api/brief", api_brief)
     app.router.add_get("/api/whales", api_whales)
