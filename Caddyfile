@@ -1,0 +1,6 @@
+# Авто-HTTPS (Let's Encrypt) для домена из переменной DOMAIN (.env).
+# Caddy сам получит и обновит сертификат.
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy bot:8080
+}
