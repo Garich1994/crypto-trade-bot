@@ -19,6 +19,7 @@ for _stream in (sys.stdout, sys.stderr):
 from aiogram import Bot, Dispatcher
 
 from agents.alerts_agent import run_check
+from agents.broker_agent import reset_killswitch_if_env
 from agents.coordinator_agent import (
     build_brief,
     due_subscriptions,
@@ -90,6 +91,8 @@ async def main() -> None:
     dp.include_router(router)
 
     logging.info("Бот запускается (long polling)...")
+    if reset_killswitch_if_env():
+        logging.info("Killswitch снят по BROKER_KILLSWITCH_RESET из .env")
     # Чистим апдейты, накопившиеся пока бот был офлайн.
     await bot.delete_webhook(drop_pending_updates=True)
 

@@ -4,9 +4,10 @@ from __future__ import annotations
 import logging
 import os
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.types import (
+    CallbackQuery,
     FSInputFile,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -21,6 +22,14 @@ from agents.alerts_agent import (
     remove_alert,
 )
 from agents.backtest_agent import BacktestError, backtest
+from agents.broker_agent import (
+    BrokerError,
+    confirm_order,
+    place_order,
+    set_mode as broker_set_mode,
+    status as broker_status,
+)
+from agents.broker_agent import engage_killswitch
 from agents.budget_agent import BudgetError, calc_position
 from agents.chart_agent import plot_analysis, plot_backtest
 from agents.coordinator_agent import (
@@ -122,7 +131,10 @@ START_TEXT = (
     "• /liquidations — о ликвидациях фьючерсов (недоступны из региона)\n"
     "• /brief — автобриф по рынку (новости + топ идеи + риск-гейт)\n"
     "• /autobrief on [часы] | off — авторассылка брифа каждые N часов (по умолчанию 4)\n"
-    "• /dashboard — ссылка на веб-дашборд (демо на этом ПК)\n\n"
+    "• /dashboard — ссылка на веб-дашборд (демо на этом ПК)\n"
+    "• /broker — режим исполнения (paper/testnet/live); /broker testnet|paper — переключить\n"
+    "• /buy ПАРА объём [стоп] [тейк] · /sell … — ордер (в live — с подтверждением)\n"
+    "• /killswitch — мгновенно заблокировать testnet/live\n\n"
     "ℹ️ Сторож (подписки) работает только пока запущен этот бот.\n"
     "🧪 Paper-режим строго виртуальный: без ключей биржи и без реальных ордеров.\n\n"
     f"{DISCLAIMER}"
@@ -726,6 +738,137 @@ async def cmd_chart(message: Message, command: CommandObject) -> None:
 @router.message(Command("liquidations"))
 async def cmd_liquidations(message: Message) -> None:
     await message.answer(LIQUIDATIONS_NOTE)
+
+
+_MODE_RU = {"paper": "🧪 paper (виртуально)",
+            "testnet": "🧪 testnet (фейк-деньги, настоящий API)",
+            "live": "🔴 live (реальная биржа)"}
+
+
+@router.message(Command("broker"))
+async def cmd_broker(message: Message, command: CommandObject) -> None:
+    arg = (command.args or "").strip().lower()
+    if arg in ("paper", "testnet"):
+        try:
+            broker_set_mode(arg)
+        except BrokerError as exc:
+            await message.answer(f"Не получилось: {exc}")
+            return
+        await message.answer(f"Режим переключён: {_MODE_RU.get(arg, arg)}")
+        return
+    if arg == "live":
+        await message.answer(
+            "Режим live включается только строкой BROKER_MODE=live в .env, не командой."
+        )
+        return
+
+    st = broker_status()
+    keys = "есть" if st["keys_present"] else "нет"
+    await message.answer(
+        "🏦 Брокер\n"
+        f"Режим: {_MODE_RU.get(st['mode'], st['mode'])}\n"
+        f"Killswitch: {'🔒 активен' if st['killswitch'] else 'выкл'}\n"
+        f"Ключи в .env: {keys} (в коде ключей нет)\n"
+        f"Базовый URL: {st['base_url']}\n\n"
+        "Переключение: /broker testnet | /broker paper (live — только через .env)."
+    )
+
+
+async def _broker_order(message: Message, command: CommandObject, side: str) -> None:
+    args = (command.args or "").split()
+    if len(args) < 2:
+        await message.answer(
+            f"Формат: /{side} ПАРА объём [стоп] [тейк]\nПример: /{side} BTCUSDT 0.01"
+        )
+        return
+    symbol = args[0].upper()
+    try:
+        qty = float(args[1].replace(",", "."))
+        stop = float(args[2].replace(",", ".")) if len(args) > 2 else None
+        take = float(args[3].replace(",", ".")) if len(args) > 3 else None
+    except ValueError:
+        await message.answer("Объём, стоп и тейк должны быть числами.")
+        return
+
+    try:
+        res = await place_order(_user_id(message), symbol, side, qty, stop, take)
+    except (BrokerError, DataAgentError) as exc:
+        await message.answer(f"Не получилось: {exc}")
+        return
+    except Exception:
+        logger.exception("Непредвиденная ошибка в /%s", side)
+        await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+        return
+
+    st = res["status"]
+    if st == "blocked":
+        await message.answer(f"⛔ Ордер не отправлен: {res['reason']}")
+    elif st == "needs_confirmation":
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"brk:{res['token']}"),
+            InlineKeyboardButton(text="Отмена", callback_data="brk:cancel"),
+        ]])
+        await message.answer(
+            f"🔴 {res['warning']}\n\n"
+            f"{side.upper()} {res['symbol']} · {res['qty']} по ~{res['price']}\n"
+            "Нажми «Подтвердить», чтобы отправить ордер.",
+            reply_markup=kb,
+        )
+    else:  # executed
+        await message.answer(
+            f"✅ Ордер исполнен ({res['mode']}): {side.upper()} {res['symbol']} "
+            f"{res['qty']} по {res['price']}."
+        )
+
+
+@router.message(Command("buy"))
+async def cmd_buy(message: Message, command: CommandObject) -> None:
+    await _broker_order(message, command, "buy")
+
+
+@router.message(Command("sell"))
+async def cmd_sell(message: Message, command: CommandObject) -> None:
+    await _broker_order(message, command, "sell")
+
+
+@router.message(Command("killswitch"))
+async def cmd_killswitch(message: Message) -> None:
+    engage_killswitch()
+    await message.answer(
+        "🔒 Killswitch активирован. Режимы testnet и live заблокированы.\n"
+        "Разблокировка — вручную в .env (BROKER_KILLSWITCH_RESET=1) и перезапуск бота."
+    )
+
+
+@router.callback_query(F.data.startswith("brk:"))
+async def cb_broker_confirm(callback: CallbackQuery) -> None:
+    token = callback.data.split(":", 1)[1]
+    if token == "cancel":
+        await callback.message.edit_text("Ордер отменён.")
+        await callback.answer()
+        return
+
+    user_id = callback.from_user.id if callback.from_user else 0
+    try:
+        res = await confirm_order(user_id, token)
+    except (BrokerError, DataAgentError) as exc:
+        await callback.message.edit_text(f"Не получилось: {exc}")
+        await callback.answer()
+        return
+    except Exception:
+        logger.exception("Ошибка подтверждения ордера")
+        await callback.message.edit_text("Внутренняя ошибка при исполнении.")
+        await callback.answer()
+        return
+
+    if res["status"] == "executed":
+        await callback.message.edit_text(
+            f"✅ Ордер исполнен (live): {res['side'].upper()} {res['symbol']} "
+            f"{res['qty']} по {res['price']}."
+        )
+    else:
+        await callback.message.edit_text(f"⛔ {res.get('reason', 'ордер не отправлен')}")
+    await callback.answer()
 
 
 @router.message(Command("dashboard"))
