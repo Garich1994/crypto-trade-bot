@@ -39,6 +39,7 @@ from agents.paper_agent import (
 )
 from agents.risk_agent import RiskError, check_risk
 from agents.scanner_agent import scan
+from agents.skeptic_agent import SkepticError, skeptic
 from agents.ta_agent import analyze
 from agents.whale_agent import LIQUIDATIONS_NOTE, get_whales
 from agents.ta_agent.analyzer import DEFAULT_TIMEFRAME
@@ -58,6 +59,7 @@ from bot.formatting import (
     format_risk,
     format_scan,
     format_size,
+    format_skeptic,
     format_trade_closed,
     format_watches,
     format_whales,
@@ -80,6 +82,8 @@ START_TEXT = (
     "• /news — свежие крипто-новости\n"
     "• /entry BTCUSDT long [таймфрейм] — оценка условий входа (балл 0–100)\n"
     "• /exit BTCUSDT long 80300 [таймфрейм] — расчёт стопа и тейков по ATR и уровням\n"
+    "• /skeptic BTCUSDT long вход стоп тейк — проверка идеи сделки на прочность\n"
+    "   пример: /skeptic BTCUSDT long 80300 79500 81200\n"
     "• /size депозит риск% вход стоп [плечо] — размер позиции по риску\n"
     "   пример: /size 10000 1 80300 79500 5\n"
     "• /risk депозит риск% открытых_сделок — проверка риск-лимитов\n"
@@ -657,3 +661,38 @@ async def cmd_whales(message: Message, command: CommandObject) -> None:
 @router.message(Command("liquidations"))
 async def cmd_liquidations(message: Message) -> None:
     await message.answer(LIQUIDATIONS_NOTE)
+
+
+_SKEPTIC_USAGE = (
+    "Формат: /skeptic ПАРА сторона вход стоп тейк\n"
+    "Пример: /skeptic BTCUSDT long 80300 79500 81200"
+)
+
+
+@router.message(Command("skeptic"))
+async def cmd_skeptic(message: Message, command: CommandObject) -> None:
+    args = (command.args or "").split()
+    if len(args) < 5:
+        await message.answer(_SKEPTIC_USAGE)
+        return
+
+    symbol, side = args[0].upper(), args[1]
+    try:
+        entry = float(args[2].replace(",", "."))
+        stop = float(args[3].replace(",", "."))
+        take = float(args[4].replace(",", "."))
+    except ValueError:
+        await message.answer("Вход, стоп и тейк должны быть числами.\n\n" + _SKEPTIC_USAGE)
+        return
+
+    try:
+        result = await skeptic(symbol, side, entry, stop, take)
+    except (SkepticError, DataAgentError) as exc:
+        await message.answer(f"Не получилось: {exc}")
+        return
+    except Exception:
+        logger.exception("Непредвиденная ошибка в /skeptic")
+        await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+        return
+
+    await message.answer(format_skeptic(result))

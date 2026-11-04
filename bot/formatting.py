@@ -134,6 +134,33 @@ def format_entry(result: dict) -> str:
         pts = f["points"]
         sign = f"+{pts}" if pts > 0 else (f"{pts}" if pts < 0 else "0")
         lines.append(f"• {f['label']}  ({sign})")
+    lines.extend(
+        [
+            "",
+            result["summary"],
+            "",
+            f"🔍 Прогнать идею через скептика: "
+            f"/skeptic {result['symbol']} {result['side']} вход стоп тейк",
+            "",
+            DISCLAIMER,
+        ]
+    )
+    return "\n".join(lines)
+
+
+def format_skeptic(result: dict) -> str:
+    """Собрать текст ответа на /skeptic."""
+    side_ru = _SIDE_RU.get(result["side"], result["side"])
+    symbol = result.get("symbol", "")
+    lines = [
+        f"🔍 Скептик · {symbol} · {side_ru}",
+        f"Вход {_fmt_price(result['entry'])}, стоп {_fmt_price(result['stop'])}, "
+        f"тейк {_fmt_price(result['take'])}",
+        "",
+    ]
+    for c in result["checks"]:
+        mark = "✅" if c["status"] == "PASS" else "⚠️"
+        lines.append(f"{mark} {c['name']}: {c['detail']}")
     lines.extend(["", result["summary"], "", DISCLAIMER])
     return "\n".join(lines)
 
