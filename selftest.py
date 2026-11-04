@@ -908,6 +908,83 @@ async def _check_miniapp(errors: list[str]) -> None:
         print(f"  {OK} сервер стартует, все /api/* отвечают 200 валидным JSON")
 
 
+async def _check_deploy(errors: list[str]) -> None:
+    """Деплой: /healthz отвечает 200 {ok:true}; файлы Docker/Caddy валидны."""
+    print("\n— Проверяю деплой (healthz + Docker/Caddy) …")
+    from aiohttp.test_utils import TestClient, TestServer
+
+    before = len(errors)
+    root = os.path.dirname(os.path.abspath(__file__))
+
+    # 1) /healthz 200 {ok:true}.
+    client = None
+    try:
+        client = TestClient(TestServer(miniapp_server.create_app()))
+        await client.start_server()
+        resp = await client.get("/healthz")
+        if resp.status != 200:
+            errors.append(f"deploy: /healthz вернул {resp.status}")
+        else:
+            data = await resp.json()
+            if not (isinstance(data, dict) and data.get("ok") is True):
+                errors.append(f"deploy: /healthz ok!=true ({data})")
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"deploy: healthz упал — {exc!r}")
+    finally:
+        if client is not None:
+            await client.close()
+
+    # 2) Наличие и базовая валидность деплой-файлов.
+    def _read(name):
+        p = os.path.join(root, name)
+        if not os.path.isfile(p):
+            errors.append(f"deploy: нет файла {name}")
+            return ""
+        with open(p, encoding="utf-8") as fh:
+            return fh.read()
+
+    dockerfile = _read("Dockerfile")
+    if "python:3.11-slim" not in dockerfile or "bot.main" not in dockerfile:
+        errors.append("deploy: Dockerfile без python:3.11-slim или запуска bot.main")
+
+    compose = _read("docker-compose.yml")
+    for marker in ("services:", "bot:", "caddy:", "build:", "image: caddy",
+                   "./data:/app/data", "env_file"):
+        if marker not in compose:
+            errors.append(f"deploy: docker-compose.yml без '{marker}'")
+
+    caddy = _read("Caddyfile")
+    if "reverse_proxy bot:8080" not in caddy or "{$DOMAIN}" not in caddy:
+        errors.append("deploy: Caddyfile без reverse_proxy bot:8080 или {$DOMAIN}")
+
+    env_example = _read(".env.example")
+    if "BOT_TOKEN=" not in env_example or "DOMAIN=" not in env_example:
+        errors.append("deploy: .env.example без BOT_TOKEN/DOMAIN")
+
+    if not os.path.isfile(os.path.join(root, "DEPLOY.md")):
+        errors.append("deploy: нет DEPLOY.md")
+
+    # 3) docker compose config, если docker установлен (иначе структурная проверка выше).
+    docker = shutil.which("docker")
+    compose_checked = "структурно (docker не найден)"
+    if docker:
+        import subprocess
+        try:
+            res = subprocess.run(
+                [docker, "compose", "-f", os.path.join(root, "docker-compose.yml"), "config"],
+                capture_output=True, text=True, timeout=60,
+            )
+            if res.returncode != 0:
+                errors.append(f"deploy: docker compose config невалиден: {res.stderr.strip()[:200]}")
+            else:
+                compose_checked = "docker compose config OK"
+        except Exception as exc:  # noqa: BLE001
+            compose_checked = f"docker недоступен ({exc!r})"
+
+    if len(errors) == before:
+        print(f"  {OK} /healthz=200 {{ok:true}}; деплой-файлы валидны; compose — {compose_checked}")
+
+
 async def _run() -> int:
     pairs = [("BTCUSDT", "1h"), ("ETHUSDT", "1h")]
     errors: list[str] = []
@@ -947,6 +1024,7 @@ async def _run() -> int:
     await _check_coordinator(errors)
     _check_charts(errors)
     await _check_miniapp(errors)
+    await _check_deploy(errors)
 
     print()
     if errors:
