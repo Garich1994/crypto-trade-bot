@@ -117,6 +117,57 @@ async def get_klines(symbol: str, interval: str, limit: int = 300) -> list[list]
     return data
 
 
+async def get_klines_history(
+    symbol: str,
+    interval: str,
+    total: int,
+    batch: int = 1000,
+) -> list[list]:
+    """Исторические свечи глубиной до `total` штук с пагинацией.
+
+    Binance отдаёт максимум 1000 свечей за запрос, поэтому для большей глубины
+    делаем несколько запросов назад по времени (через endTime). Возвращает список
+    в хронологическом порядке (от старых к новым), не длиннее `total`.
+    """
+    interval = interval.lower()
+    if interval not in ALLOWED_INTERVALS:
+        raise DataAgentError(
+            f"Неподдерживаемый таймфрейм: {interval}. "
+            f"Доступны: {', '.join(ALLOWED_INTERVALS)}."
+        )
+    symbol = symbol.upper()
+    per_req = max(1, min(batch, 1000))
+
+    collected: list[list] = []
+    end_time: int | None = None
+
+    while len(collected) < total:
+        params: dict[str, Any] = {
+            "symbol": symbol,
+            "interval": interval,
+            "limit": per_req,
+        }
+        if end_time is not None:
+            params["endTime"] = end_time
+
+        data = await _request(SPOT_HOSTS, "/api/v3/klines", params)
+        if not isinstance(data, list) or not data:
+            break
+
+        collected = data + collected  # более старые свечи идут в начало
+        earliest_open = int(data[0][0])
+        next_end = earliest_open - 1
+        if end_time is not None and next_end >= end_time:
+            break  # нет прогресса — выходим, чтобы не зациклиться
+        end_time = next_end
+        if len(data) < per_req:
+            break  # история закончилась
+
+    if not collected:
+        raise DataAgentError("Binance вернул пустой набор свечей.")
+    return collected[-total:]
+
+
 async def get_ticker_24h(symbol: str) -> dict:
     """24-часовая статистика по паре."""
     params = {"symbol": symbol.upper()}
