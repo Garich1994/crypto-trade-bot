@@ -8,11 +8,13 @@ from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.types import Message
 
 from agents.backtest_agent import BacktestError, backtest
+from agents.budget_agent import BudgetError, calc_position
 from agents.data_agent import DataAgentError
 from agents.data_agent.client import ALLOWED_INTERVALS
 from agents.entry_agent import EntryError, score_entry
 from agents.exit_agent import ExitError, plan_exit
 from agents.news_agent import get_crypto_news
+from agents.risk_agent import RiskError, check_risk
 from agents.scanner_agent import scan
 from agents.ta_agent import analyze
 from agents.ta_agent.analyzer import DEFAULT_TIMEFRAME
@@ -23,7 +25,9 @@ from bot.formatting import (
     format_entry,
     format_exit,
     format_news,
+    format_risk,
     format_scan,
+    format_size,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,7 +46,11 @@ START_TEXT = (
     "• /scan [таймфрейм] — обзор топ-30 USDT-пар и подсветка ситуаций\n"
     "• /news — свежие крипто-новости\n"
     "• /entry BTCUSDT long [таймфрейм] — оценка условий входа (балл 0–100)\n"
-    "• /exit BTCUSDT long 80300 [таймфрейм] — расчёт стопа и тейков по ATR и уровням\n\n"
+    "• /exit BTCUSDT long 80300 [таймфрейм] — расчёт стопа и тейков по ATR и уровням\n"
+    "• /size депозит риск% вход стоп [плечо] — размер позиции по риску\n"
+    "   пример: /size 10000 1 80300 79500 5\n"
+    "• /risk депозит риск% открытых_сделок — проверка риск-лимитов\n"
+    "   пример: /risk 10000 1 2\n\n"
     f"{DISCLAIMER}"
 )
 
@@ -229,3 +237,75 @@ async def cmd_exit(message: Message, command: CommandObject) -> None:
         return
 
     await message.answer(format_exit(result))
+
+
+_SIZE_USAGE = (
+    "Формат: /size депозит риск% вход стоп [плечо]\n"
+    "Пример: /size 10000 1 80300 79500 5\n"
+    "Плечо опционально (по умолчанию 1)."
+)
+
+
+@router.message(Command("size"))
+async def cmd_size(message: Message, command: CommandObject) -> None:
+    args = (command.args or "").split()
+    if len(args) < 4:
+        await message.answer(_SIZE_USAGE)
+        return
+
+    try:
+        nums = [float(a.replace(",", ".")) for a in args[:5]]
+    except ValueError:
+        await message.answer("Все параметры должны быть числами.\n\n" + _SIZE_USAGE)
+        return
+
+    deposit, risk_pct, entry, stop = nums[0], nums[1], nums[2], nums[3]
+    leverage = nums[4] if len(nums) > 4 else 1.0
+
+    try:
+        result = calc_position(deposit, risk_pct, entry, stop, leverage)
+    except BudgetError as exc:
+        await message.answer(f"Не получилось: {exc}")
+        return
+    except Exception:
+        logger.exception("Непредвиденная ошибка в /size")
+        await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+        return
+
+    await message.answer(format_size(result))
+
+
+_RISK_USAGE = (
+    "Формат: /risk депозит риск% открытых_сделок\n"
+    "Пример: /risk 10000 1 2"
+)
+
+
+@router.message(Command("risk"))
+async def cmd_risk(message: Message, command: CommandObject) -> None:
+    args = (command.args or "").split()
+    if len(args) < 2:
+        await message.answer(_RISK_USAGE)
+        return
+
+    try:
+        deposit = float(args[0].replace(",", "."))
+        risk_pct = float(args[1].replace(",", "."))
+        open_trades = int(args[2]) if len(args) > 2 else 0
+    except ValueError:
+        await message.answer(
+            "Депозит и риск — числа, открытых сделок — целое.\n\n" + _RISK_USAGE
+        )
+        return
+
+    try:
+        result = check_risk(deposit, risk_pct, open_trades)
+    except RiskError as exc:
+        await message.answer(f"Не получилось: {exc}")
+        return
+    except Exception:
+        logger.exception("Непредвиденная ошибка в /risk")
+        await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+        return
+
+    await message.answer(format_risk(result))

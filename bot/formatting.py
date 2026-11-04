@@ -160,6 +160,59 @@ def format_exit(result: dict) -> str:
     return "\n".join(lines)
 
 
+def _fmt_qty(value: float) -> str:
+    """Количество монет: достаточно знаков для мелких значений."""
+    if value >= 1000:
+        return f"{value:,.3f}".replace(",", " ")
+    if value >= 1:
+        return f"{value:.4f}"
+    return f"{value:.8f}".rstrip("0").rstrip(".")
+
+
+def format_size(result: dict) -> str:
+    """Собрать текст ответа на /size (размер позиции)."""
+    lev = result["leverage"]
+    lev_str = f"{lev:.0f}x" if float(lev).is_integer() else f"{lev:g}x"
+    risk_per_unit = abs(result["entry_price"] - result["stop_price"])
+
+    lines = [
+        "💼 Размер позиции",
+        "",
+        f"Депозит: {_fmt_price(result['deposit_usdt'])} USDT",
+        f"Риск: {result['risk_pct']:g}% = {_fmt_price(result['risk_usdt'])} USDT",
+        f"Вход {_fmt_price(result['entry_price'])}, стоп {_fmt_price(result['stop_price'])} "
+        f"(риск на единицу {_fmt_price(risk_per_unit)})",
+        f"Плечо: {lev_str}",
+        "",
+        f"📦 Размер позиции: {_fmt_qty(result['qty'])} монет "
+        f"(~{_fmt_price(result['position_usdt'])} USDT маржи)",
+        "",
+        DISCLAIMER,
+    ]
+    return "\n".join(lines)
+
+
+def format_risk(result: dict) -> str:
+    """Собрать текст ответа на /risk (проверка риск-лимитов)."""
+    mark = "✅" if result["verdict"] == "В пределах лимитов." else "⚠️"
+    lines = [
+        "🛡 Проверка риск-лимитов",
+        "",
+        f"Депозит: {_fmt_price(result['deposit_usdt'])} USDT",
+        f"Риск на сделку: {result['risk_pct']:g}% "
+        f"({'в норме' if result['per_trade_ok'] else 'выше 2%'})",
+        f"Открытых сделок: {result['open_trades']} → "
+        f"суммарный риск с новой: {result['total_risk_pct']:g}%",
+        f"Лимит суммарного риска: {result['max_total_risk_pct']:g}%",
+        "",
+        f"{mark} Вердикт: {result['verdict']}",
+        f"💡 Совет: {result['advice']}",
+        "",
+        DISCLAIMER,
+    ]
+    return "\n".join(lines)
+
+
 def _ago(dt: datetime) -> str:
     """Человекочитаемое «сколько назад» для времени в UTC."""
     delta = datetime.now(timezone.utc) - dt
