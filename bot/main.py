@@ -19,13 +19,20 @@ for _stream in (sys.stdout, sys.stderr):
 from aiogram import Bot, Dispatcher
 
 from agents.alerts_agent import run_check
+from agents.coordinator_agent import (
+    build_brief,
+    due_subscriptions,
+    mark_brief_sent,
+)
 from agents.paper_agent import run_paper_check
-from bot.formatting import format_alert_fired, format_paper_closed
+from bot.formatting import format_alert_fired, format_brief, format_paper_closed
 from bot.handlers import router
 from core.config import require_bot_token
 
 #: Период фоновой проверки подписок (Сторож), секунды.
 _ALERTS_INTERVAL = 120
+#: Период проверки подписок на автодайджест, секунды.
+_BRIEF_INTERVAL = 900
 
 
 async def _alerts_loop(bot: Bot) -> None:
@@ -56,6 +63,25 @@ async def _alerts_loop(bot: Bot) -> None:
         await asyncio.sleep(_ALERTS_INTERVAL)
 
 
+async def _brief_loop(bot: Bot) -> None:
+    """Фоновая авторассылка дайджеста подписчикам. Работает пока жив процесс бота."""
+    while True:
+        try:
+            due = due_subscriptions()
+            if due:
+                brief = await build_brief(top=5)
+                text = format_brief(brief, auto=True)
+                for user_id in due:
+                    try:
+                        await bot.send_message(user_id, text)
+                        mark_brief_sent(user_id)
+                    except Exception:
+                        logging.exception("Не удалось отправить автодайджест")
+        except Exception:
+            logging.exception("Ошибка в цикле автодайджеста")
+        await asyncio.sleep(_BRIEF_INTERVAL)
+
+
 async def main() -> None:
     token = require_bot_token()  # упадёт понятно, если токена нет
     bot = Bot(token=token)
@@ -67,10 +93,12 @@ async def main() -> None:
     await bot.delete_webhook(drop_pending_updates=True)
 
     alerts_task = asyncio.create_task(_alerts_loop(bot))  # Сторож
+    brief_task = asyncio.create_task(_brief_loop(bot))    # Автодайджест
     try:
         await dp.start_polling(bot)
     finally:
         alerts_task.cancel()
+        brief_task.cancel()
         await bot.session.close()
 
 
