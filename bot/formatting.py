@@ -405,6 +405,59 @@ def format_paper_closed(result: dict) -> str:
     )
 
 
+AUTOBRIEF_HEADER = "🤖 Автодайджест. Наблюдения, не рекомендации. Не финансовый совет."
+
+
+def format_brief(brief: dict, auto: bool = False) -> str:
+    """Собрать текст дайджеста из структурированного результата координатора."""
+    try:
+        when = datetime.fromisoformat(brief["generated_at"]).strftime("%H:%M UTC")
+    except (ValueError, KeyError):
+        when = ""
+
+    lines: list[str] = []
+    if auto:
+        lines.append(AUTOBRIEF_HEADER)
+        lines.append("")
+    lines.append(f"📋 Бриф ({when}) · таймфрейм {brief.get('timeframe', '')}")
+    lines.append(f"Рынок: {brief.get('market_summary', '')}")
+
+    news = brief.get("news") or []
+    if news:
+        lines.append("")
+        lines.append("📰 Новости:")
+        for it in news[:3]:
+            lines.append(f"• {it['title']} — {it['source']}")
+
+    ideas = brief.get("ideas") or []
+    lines.append("")
+    if ideas:
+        lines.append("💡 Топ идеи (наблюдения):")
+        for idea in ideas:
+            side_ru = _SIDE_RU.get(idea["side"], idea["side"])
+            line = (
+                f"• {idea['symbol']} ({side_ru}): скоринг {idea['score']}/100; "
+                f"вход {_fmt_price(idea['entry'])}, стоп {_fmt_price(idea['stop'])}, "
+                f"тейк {_fmt_price(idea['take1'])}; скептик "
+                f"{idea['skeptic_passed']}/{idea['skeptic_total']}"
+            )
+            lines.append(line)
+            if idea.get("weak_points"):
+                lines.append(f"   слабые места: {'; '.join(idea['weak_points'])}")
+    else:
+        lines.append("💡 Идей по текущим правилам не набралось.")
+
+    filtered = brief.get("filtered_out") or []
+    if filtered:
+        lines.append("")
+        lines.append("⚠️ Отсеяно риск-гейтом:")
+        for f in filtered:
+            lines.append(f"• {f['symbol']}: {f['reason']}")
+
+    lines.extend(["", DISCLAIMER])
+    return "\n".join(lines)
+
+
 def _cond_phrase(condition_type: str, threshold: float) -> str:
     """Человекочитаемое описание условия подписки."""
     if condition_type == "price_above":

@@ -16,6 +16,12 @@ from agents.alerts_agent import (
 )
 from agents.backtest_agent import BacktestError, backtest
 from agents.budget_agent import BudgetError, calc_position
+from agents.coordinator_agent import (
+    AutobriefError,
+    build_brief,
+    get_autobrief,
+    set_autobrief,
+)
 from agents.data_agent import DataAgentError
 from agents.data_agent.client import ALLOWED_INTERVALS
 from agents.entry_agent import EntryError, score_entry
@@ -47,6 +53,7 @@ from bot.formatting import (
     DISCLAIMER,
     format_alert_added,
     format_analysis,
+    format_brief,
     format_backtest,
     format_entry,
     format_exit,
@@ -103,7 +110,9 @@ START_TEXT = (
     "• /paperclose id — закрыть виртуальную позицию по рынку\n"
     "• /paperreset ДА — сбросить виртуальный портфель к 10 000\n"
     "• /whales [ПАРА] — крупные (китовые) сделки на споте за недавнее окно\n"
-    "• /liquidations — о ликвидациях фьючерсов (недоступны из региона)\n\n"
+    "• /liquidations — о ликвидациях фьючерсов (недоступны из региона)\n"
+    "• /brief — автобриф по рынку (новости + топ идеи + риск-гейт)\n"
+    "• /autobrief on [часы] | off — авторассылка брифа каждые N часов (по умолчанию 4)\n\n"
     "ℹ️ Сторож (подписки) работает только пока запущен этот бот.\n"
     "🧪 Paper-режим строго виртуальный: без ключей биржи и без реальных ордеров.\n\n"
     f"{DISCLAIMER}"
@@ -661,6 +670,72 @@ async def cmd_whales(message: Message, command: CommandObject) -> None:
 @router.message(Command("liquidations"))
 async def cmd_liquidations(message: Message) -> None:
     await message.answer(LIQUIDATIONS_NOTE)
+
+
+@router.message(Command("brief"))
+async def cmd_brief(message: Message) -> None:
+    await message.answer("📋 Собираю бриф, это займёт несколько секунд…")
+    try:
+        brief = await build_brief(top=5)
+    except DataAgentError as exc:
+        await message.answer(f"Не получилось: {exc}")
+        return
+    except Exception:
+        logger.exception("Непредвиденная ошибка в /brief")
+        await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+        return
+    await message.answer(format_brief(brief, auto=False))
+
+
+@router.message(Command("autobrief"))
+async def cmd_autobrief(message: Message, command: CommandObject) -> None:
+    args = (command.args or "").split()
+    if not args or args[0].lower() not in ("on", "off"):
+        current = get_autobrief(_user_id(message))
+        state = (
+            f"сейчас: каждые {current['interval_h']:g} ч"
+            if current and current["active"]
+            else "сейчас: выключен"
+        )
+        await message.answer(
+            "Формат: /autobrief on [часы] | off\n"
+            "Пример: /autobrief on 4\n" + state
+        )
+        return
+
+    if args[0].lower() == "off":
+        try:
+            set_autobrief(_user_id(message), active=False)
+        except Exception:
+            logger.exception("Ошибка /autobrief off")
+            await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+            return
+        await message.answer("🔕 Автодайджест выключен.")
+        return
+
+    interval = 4.0
+    if len(args) > 1:
+        try:
+            interval = float(args[1].replace(",", "."))
+        except ValueError:
+            await message.answer("Часы должны быть числом. Пример: /autobrief on 4")
+            return
+
+    try:
+        sub = set_autobrief(_user_id(message), active=True, interval_h=interval)
+    except AutobriefError as exc:
+        await message.answer(f"Не получилось: {exc}")
+        return
+    except Exception:
+        logger.exception("Ошибка /autobrief on")
+        await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+        return
+
+    await message.answer(
+        f"🔔 Автодайджест включён: каждые {sub['interval_h']:g} ч.\n"
+        "🤖 Автодайджест. Наблюдения, не рекомендации. Не финансовый совет.\n"
+        "ℹ️ Работает только пока запущен бот. Выключить: /autobrief off"
+    )
 
 
 _SKEPTIC_USAGE = (
