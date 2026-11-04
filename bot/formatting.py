@@ -264,6 +264,67 @@ def format_open_trades(trades: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _cond_phrase(condition_type: str, threshold: float) -> str:
+    """Человекочитаемое описание условия подписки."""
+    if condition_type == "price_above":
+        return f"цена выше {_fmt_price(threshold)}"
+    if condition_type == "price_below":
+        return f"цена ниже {_fmt_price(threshold)}"
+    if condition_type == "rsi_above":
+        return f"RSI выше {threshold:g}"
+    if condition_type == "rsi_below":
+        return f"RSI ниже {threshold:g}"
+    if condition_type == "change24h_abs":
+        return f"|изменение за 24ч| ≥ {threshold:g}%"
+    if condition_type == "volume_spike":
+        return f"объём ≥ x{threshold:g} от среднего"
+    return f"{condition_type} {threshold:g}"
+
+
+def _fmt_actual(condition_type: str, value) -> str:
+    if value is None:
+        return "н/д"
+    if condition_type.startswith("price"):
+        return _fmt_price(value)
+    if condition_type.startswith("rsi"):
+        return f"{value:.1f}"
+    if condition_type == "change24h_abs":
+        return f"{value:.2f}%"
+    if condition_type == "volume_spike":
+        return f"x{value:.2f}"
+    return str(value)
+
+
+def format_alert_added(alert: dict) -> str:
+    """Собрать текст ответа на /watch."""
+    phrase = _cond_phrase(alert["condition_type"], alert["threshold"])
+    return (
+        f"🔔 Подписка №{alert['id']} создана: {alert['symbol']} — {phrase}.\n"
+        f"Одноразовая: сработает один раз. Отмена: /unwatch {alert['id']}"
+    )
+
+
+def format_watches(alerts: list[dict]) -> str:
+    """Собрать текст ответа на /watches."""
+    if not alerts:
+        return "📭 Активных подписок нет. Создать: /watch BTCUSDT price_above 81000"
+    lines = ["📬 Активные подписки:", ""]
+    for a in alerts:
+        phrase = _cond_phrase(a["condition_type"], a["threshold"])
+        lines.append(f"№{a['id']} · {a['symbol']} — {phrase}")
+    return "\n".join(lines)
+
+
+def format_alert_fired(event: dict) -> str:
+    """Собрать текст уведомления о срабатывании условия."""
+    phrase = _cond_phrase(event["condition_type"], event["threshold"])
+    actual = _fmt_actual(event["condition_type"], event.get("actual"))
+    return (
+        f"🔔 Условие сработало: {event['symbol']} {phrase} "
+        f"(факт {actual}). Это уведомление, не рекомендация."
+    )
+
+
 def _ago(dt: datetime) -> str:
     """Человекочитаемое «сколько назад» для времени в UTC."""
     delta = datetime.now(timezone.utc) - dt

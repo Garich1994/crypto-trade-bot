@@ -7,6 +7,13 @@ from aiogram import Router
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.types import Message
 
+from agents.alerts_agent import (
+    CONDITION_TYPES,
+    AlertError,
+    add_alert,
+    list_alerts,
+    remove_alert,
+)
 from agents.backtest_agent import BacktestError, backtest
 from agents.budget_agent import BudgetError, calc_position
 from agents.data_agent import DataAgentError
@@ -27,6 +34,7 @@ from agents.ta_agent import analyze
 from agents.ta_agent.analyzer import DEFAULT_TIMEFRAME
 from bot.formatting import (
     DISCLAIMER,
+    format_alert_added,
     format_analysis,
     format_backtest,
     format_entry,
@@ -38,6 +46,7 @@ from bot.formatting import (
     format_scan,
     format_size,
     format_trade_closed,
+    format_watches,
 )
 
 logger = logging.getLogger(__name__)
@@ -65,7 +74,12 @@ START_TEXT = (
     "   пример: /trade BTCUSDT long 80300 79500 81200 0.125\n"
     "• /close id цена — закрыть сделку по цене выхода\n"
     "• /journal — статистика по закрытым сделкам\n"
-    "• /opentrades — открытые сделки\n\n"
+    "• /opentrades — открытые сделки\n"
+    "• /watch ПАРА тип порог — подписка на условие (одноразовая)\n"
+    "   типы: price_above, price_below, rsi_above, rsi_below, change24h_abs, volume_spike\n"
+    "   пример: /watch BTCUSDT price_above 81000\n"
+    "• /watches — активные подписки, /unwatch id — отменить\n\n"
+    "ℹ️ Сторож (подписки) работает только пока запущен этот бот.\n\n"
     f"{DISCLAIMER}"
 )
 
@@ -417,3 +431,74 @@ async def cmd_opentrades(message: Message) -> None:
         await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
         return
     await message.answer(format_open_trades(trades))
+
+
+_WATCH_USAGE = (
+    "Формат: /watch ПАРА тип порог\n"
+    "Типы: " + ", ".join(CONDITION_TYPES) + "\n"
+    "Пример: /watch BTCUSDT price_above 81000"
+)
+
+
+@router.message(Command("watch"))
+async def cmd_watch(message: Message, command: CommandObject) -> None:
+    args = (command.args or "").split()
+    if len(args) < 3:
+        await message.answer(_WATCH_USAGE)
+        return
+
+    symbol, condition_type = args[0].upper(), args[1].lower()
+    try:
+        threshold = float(args[2].replace(",", "."))
+    except ValueError:
+        await message.answer("Порог должен быть числом.\n\n" + _WATCH_USAGE)
+        return
+
+    try:
+        alert = add_alert(_user_id(message), symbol, condition_type, threshold)
+    except AlertError as exc:
+        await message.answer(f"Не получилось: {exc}")
+        return
+    except Exception:
+        logger.exception("Непредвиденная ошибка в /watch")
+        await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+        return
+
+    await message.answer(format_alert_added(alert))
+
+
+@router.message(Command("watches"))
+async def cmd_watches(message: Message) -> None:
+    try:
+        alerts = list_alerts(_user_id(message))
+    except Exception:
+        logger.exception("Непредвиденная ошибка в /watches")
+        await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+        return
+    await message.answer(format_watches(alerts))
+
+
+@router.message(Command("unwatch"))
+async def cmd_unwatch(message: Message, command: CommandObject) -> None:
+    args = (command.args or "").split()
+    if not args:
+        await message.answer("Формат: /unwatch id\nПример: /unwatch 2")
+        return
+
+    try:
+        alert_id = int(args[0])
+    except ValueError:
+        await message.answer("id подписки — целое число. Пример: /unwatch 2")
+        return
+
+    try:
+        remove_alert(_user_id(message), alert_id)
+    except AlertError as exc:
+        await message.answer(f"Не получилось: {exc}")
+        return
+    except Exception:
+        logger.exception("Непредвиденная ошибка в /unwatch")
+        await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+        return
+
+    await message.answer(f"🗑 Подписка №{alert_id} отменена.")
