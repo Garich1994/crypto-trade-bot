@@ -1,9 +1,12 @@
 from agents.broker_agent.broker import (
     BrokerError,
+    cancel_order,
     confirm_order,
     current_mode,
     engage_killswitch,
     is_killed,
+    list_orders,
+    place_limit_order,
     place_order,
     record_live_loss,
     reset_killswitch_if_env,
@@ -15,6 +18,9 @@ from agents.broker_agent.broker import (
 __all__ = [
     "BrokerError",
     "place_order",
+    "place_limit_order",
+    "list_orders",
+    "cancel_order",
     "confirm_order",
     "current_mode",
     "set_mode",

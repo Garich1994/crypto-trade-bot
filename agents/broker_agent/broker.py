@@ -26,7 +26,12 @@ import aiohttp
 # Функции других агентов — на уровень модуля (патчатся в тестах).
 from agents.data_agent import get_ticker_24h
 from agents.journal_agent import add_trade as journal_add_trade
-from agents.paper_agent import open_position as paper_open
+from agents.paper_agent import (
+    add_limit_order as paper_add_limit,
+    cancel_limit_order as paper_cancel_limit,
+    open_limit_orders as paper_open_limit_orders,
+    open_position as paper_open,
+)
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_DB = _PROJECT_ROOT / "data" / "journal.db"
@@ -305,6 +310,7 @@ async def place_order(
     # Подтверждение тапом обязательно — создаём ожидающий ордер.
     token = secrets.token_urlsafe(8)
     _pending[token] = {
+        "kind": "market",
         "user_id": int(user_id), "symbol": symbol, "side": side, "qty": qty,
         "stop": stop, "take": take, "price": price, "ts": time.time(),
     }
@@ -336,12 +342,191 @@ async def confirm_order(user_id: int, token: str) -> dict:
         return {"status": "blocked", "reason": "killswitch активен."}
 
     _pending.pop(token, None)
+
+    if pend.get("kind") == "limit":
+        order = await _place_limit_signed(
+            "live", pend["symbol"], pend["side"], pend["qty"], pend["limit_price"]
+        )
+        order_id = order.get("orderId") if isinstance(order, dict) else None
+        _journal_executed(user_id, pend["symbol"], pend["side"], pend["limit_price"],
+                          pend["stop"], pend["take"], pend["qty"], "live")
+        return {"status": "executed", "mode": "live", "order_type": "limit",
+                "symbol": pend["symbol"], "side": pend["side"], "qty": pend["qty"],
+                "limit_price": pend["limit_price"], "orderId": order_id}
+
     order = await _place_signed("live", pend["symbol"], pend["side"], pend["qty"])
     fill = _fill_price(order, pend["price"])
     _journal_executed(user_id, pend["symbol"], pend["side"], fill,
                       pend["stop"], pend["take"], pend["qty"], "live")
-    return {"status": "executed", "mode": "live", "symbol": pend["symbol"],
-            "side": pend["side"], "qty": pend["qty"], "price": fill}
+    return {"status": "executed", "mode": "live", "order_type": "market",
+            "symbol": pend["symbol"], "side": pend["side"], "qty": pend["qty"],
+            "price": fill}
+
+
+async def _signed_request(method: str, mode: str, path: str, params: str) -> dict:
+    """Подписанный REST-запрос к бирже (GET/POST/DELETE). Ключи только из env."""
+    key = os.environ.get("BINANCE_API_KEY", "")
+    secret = os.environ.get("BINANCE_API_SECRET", "")
+    ts = int(time.time() * 1000)
+    query = f"{params}&timestamp={ts}" if params else f"timestamp={ts}"
+    signature = _sign(query, secret)
+    url = f"{_base_url(mode)}{path}?{query}&signature={signature}"
+    headers = {"X-MBX-APIKEY": key}
+    timeout = aiohttp.ClientTimeout(total=10)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.request(method, url, headers=headers) as resp:
+                data = await resp.json(content_type=None)
+                if resp.status != 200:
+                    msg = data.get("msg") if isinstance(data, dict) else None
+                    raise BrokerError(msg or f"Биржа вернула статус {resp.status}.")
+                return data
+    except aiohttp.ClientError as exc:
+        raise BrokerError("Сеть биржи недоступна.") from exc
+
+
+async def _place_limit_signed(mode, symbol, side, qty, price) -> dict:
+    params = (
+        f"symbol={symbol.upper()}&side={side.upper()}&type=LIMIT"
+        f"&timeInForce=GTC&quantity={qty}&price={price}"
+    )
+    return await _signed_request("POST", mode, "/api/v3/order", params)
+
+
+async def _get_lot_size(mode: str, symbol: str) -> tuple[float, float]:
+    """(minQty, stepSize) из exchangeInfo. Нет данных — честная ошибка."""
+    base = _base_url(mode)
+    url = f"{base}/api/v3/exchangeInfo?symbol={symbol.upper()}"
+    timeout = aiohttp.ClientTimeout(total=10)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url) as resp:
+                if resp.status != 200:
+                    raise BrokerError("Не удалось получить параметры пары (LOT_SIZE).")
+                data = await resp.json(content_type=None)
+    except aiohttp.ClientError as exc:
+        raise BrokerError("Не удалось получить параметры пары (LOT_SIZE).") from exc
+    for sym in data.get("symbols", []):
+        if sym.get("symbol") == symbol.upper():
+            for f in sym.get("filters", []):
+                if f.get("filterType") == "LOT_SIZE":
+                    return float(f["minQty"]), float(f["stepSize"])
+    raise BrokerError("Параметры пары (LOT_SIZE) не найдены — ордер не выставлен.")
+
+
+async def _validate_lot(mode: str, symbol: str, qty: float) -> None:
+    min_qty, step = await _get_lot_size(mode, symbol)
+    if qty < min_qty:
+        raise BrokerError(f"Количество меньше минимального {min_qty}.")
+    if step > 0:
+        steps = round((qty - min_qty) / step)
+        if abs(min_qty + steps * step - qty) > step * 1e-6:
+            raise BrokerError(f"Количество не кратно шагу {step}.")
+
+
+async def place_limit_order(
+    user_id: int,
+    symbol: str,
+    side: str,
+    qty: float,
+    price: float,
+    stop: float | None = None,
+    take: float | None = None,
+) -> dict:
+    """Выставить лимитный ордер по текущему режиму (type=LIMIT, GTC)."""
+    symbol = symbol.upper().strip()
+    side = side.strip().lower()
+    if side not in ("buy", "sell"):
+        raise BrokerError("Сторона должна быть buy или sell.")
+    try:
+        qty = float(qty)
+        price = float(price)
+    except (TypeError, ValueError):
+        raise BrokerError("Количество и цена должны быть числами.")
+    if qty <= 0 or price <= 0:
+        raise BrokerError("Количество и цена должны быть больше нуля.")
+
+    mode = current_mode()
+
+    if mode == "paper":
+        order = paper_add_limit(user_id, symbol, side, qty, price, stop, take)
+        return {"status": "placed", "mode": "paper", "order_type": "limit",
+                "symbol": symbol, "side": side, "qty": qty, "limit_price": price,
+                "amount": qty * price, "orderId": order["orderId"]}
+
+    # testnet / live
+    if is_killed():
+        return {"status": "blocked",
+                "reason": "killswitch активен — разблокировка вручную в .env."}
+    if not _keys_present():
+        return {"status": "blocked",
+                "reason": "нет ключей в .env (BINANCE_API_KEY/BINANCE_API_SECRET)."}
+    await _validate_lot(mode, symbol, qty)
+
+    if mode == "testnet":
+        order = await _place_limit_signed("testnet", symbol, side, qty, price)
+        _journal_executed(user_id, symbol, side, price, stop, take, qty, "testnet")
+        return {"status": "placed", "mode": "testnet", "order_type": "limit",
+                "symbol": symbol, "side": side, "qty": qty, "limit_price": price,
+                "amount": qty * price, "orderId": order.get("orderId")}
+
+    # live
+    if _daily_loss_exceeded(user_id):
+        return {"status": "blocked",
+                "reason": "превышен дневной лимит убытка — live заблокирован до завтра."}
+    ok, reason = _risk_gate(side, price, stop, take)
+    if not ok:
+        return {"status": "blocked", "reason": f"риск-гейт BLOCK: {reason}."}
+
+    token = secrets.token_urlsafe(8)
+    _pending[token] = {
+        "kind": "limit",
+        "user_id": int(user_id), "symbol": symbol, "side": side, "qty": qty,
+        "limit_price": price, "stop": stop, "take": take, "ts": time.time(),
+    }
+    return {
+        "status": "needs_confirmation", "mode": "live", "order_type": "limit",
+        "token": token, "symbol": symbol, "side": side, "qty": qty,
+        "price": price, "amount": qty * price,
+        "warning": ("ВНИМАНИЕ: реальный лимитный ордер на бирже (live). "
+                    "Деньги настоящие. Без подтверждения ордер не выставляется."),
+    }
+
+
+async def list_orders(user_id: int) -> dict:
+    """Открытые лимитные ордера по текущему режиму."""
+    mode = current_mode()
+    if mode == "paper":
+        rows = paper_open_limit_orders(user_id)
+        orders = [{"orderId": r["id"], "symbol": r["symbol"], "side": r["side"],
+                   "qty": r["qty"], "price": r["limit_price"]} for r in rows]
+        return {"mode": "paper", "orders": orders}
+    if is_killed():
+        raise BrokerError("killswitch активен — биржевые режимы заблокированы.")
+    if not _keys_present():
+        raise BrokerError("нет ключей в .env.")
+    data = await _signed_request("GET", mode, "/api/v3/openOrders", "")
+    orders = [{"orderId": o.get("orderId"), "symbol": o.get("symbol"),
+               "side": str(o.get("side", "")).lower(), "qty": o.get("origQty"),
+               "price": o.get("price")} for o in (data or [])]
+    return {"mode": mode, "orders": orders}
+
+
+async def cancel_order(user_id: int, order_id, symbol: str | None = None) -> dict:
+    """Отменить лимитный ордер по текущему режиму."""
+    mode = current_mode()
+    if mode == "paper":
+        paper_cancel_limit(user_id, int(order_id))
+        return {"status": "cancelled", "mode": "paper", "orderId": int(order_id)}
+    if is_killed():
+        raise BrokerError("killswitch активен — биржевые режимы заблокированы.")
+    if not _keys_present():
+        raise BrokerError("нет ключей в .env.")
+    if not symbol:
+        raise BrokerError("Для отмены на бирже укажи пару: /cancelorder <id> <ПАРА>.")
+    params = f"symbol={symbol.upper()}&orderId={int(order_id)}"
+    await _signed_request("DELETE", mode, "/api/v3/order", params)
+    return {"status": "cancelled", "mode": mode, "orderId": int(order_id)}
 
 
 def _journal_executed(user_id, symbol, side, price, stop, take, qty, source) -> None:
