@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 
 import aiohttp
@@ -15,6 +16,20 @@ import feedparser
 from core.config import HTTP_TIMEOUT
 
 logger = logging.getLogger(__name__)
+
+# Названия монет для фильтра новостей по паре (тикер → слова для поиска в заголовке).
+COIN_NAMES: dict[str, tuple[str, ...]] = {
+    "BTC": ("bitcoin",), "ETH": ("ethereum", "ether"), "SOL": ("solana",),
+    "XRP": ("ripple", "xrp"), "BNB": ("binance coin", "bnb"), "ADA": ("cardano",),
+    "DOGE": ("dogecoin",), "TRX": ("tron",), "AVAX": ("avalanche",),
+    "LINK": ("chainlink",), "DOT": ("polkadot",), "MATIC": ("polygon",),
+    "POL": ("polygon",), "LTC": ("litecoin",), "SHIB": ("shiba",),
+    "TON": ("toncoin", "ton "), "BCH": ("bitcoin cash",), "NEAR": ("near protocol",),
+    "APT": ("aptos",), "ARB": ("arbitrum",), "OP": ("optimism",),
+    "SUI": ("sui ",), "PEPE": ("pepe",), "UNI": ("uniswap",), "ATOM": ("cosmos",),
+    "FIL": ("filecoin",), "ICP": ("internet computer",), "ETC": ("ethereum classic",),
+    "XLM": ("stellar",), "HBAR": ("hedera",), "ZEC": ("zcash",), "AAVE": ("aave",),
+}
 
 # (название источника, URL RSS-ленты)
 FEEDS: tuple[tuple[str, str], ...] = (
@@ -92,3 +107,33 @@ async def get_crypto_news(limit: int = 5) -> list[dict]:
 
     collected.sort(key=lambda it: it["time"], reverse=True)
     return collected[: max(0, limit)]
+
+
+def _base_of(symbol: str) -> str:
+    s = symbol.upper().strip()
+    for quote in ("USDT", "USDC", "FDUSD", "BUSD"):
+        if s.endswith(quote):
+            return s[: -len(quote)]
+    return s
+
+
+def _matches_symbol(title: str, base: str) -> bool:
+    """Заголовок относится к монете? Тикер как отдельное слово или имя монеты."""
+    t = title.lower()
+    if re.search(rf"\b{re.escape(base.lower())}\b", t):
+        return True
+    for name in COIN_NAMES.get(base, ()):
+        if name.strip().lower() in t:
+            return True
+    return False
+
+
+async def get_news_for_symbol(symbol: str, limit: int = 5) -> list[dict]:
+    """Свежие новости только по монете пары (фильтр по тикеру/имени).
+
+    Пустой список — честный результат: по этой монете свежих новостей нет.
+    """
+    base = _base_of(symbol)
+    pool = await get_crypto_news(limit=50)
+    hits = [it for it in pool if _matches_symbol(it["title"], base)]
+    return hits[: max(0, limit)]

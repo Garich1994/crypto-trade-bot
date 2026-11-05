@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 # Имена агентов на уровне модуля — чтобы подменять в тестах.
 from agents.alerts_agent import list_alerts
+from agents.backtest_agent import time_machine
 from agents.budget_agent import calc_position
 from agents.coordinator_agent import build_brief
 from agents.data_agent import get_klines, get_ticker_24h
@@ -25,8 +26,10 @@ from agents.entry_agent import score_entry
 from agents.exit_agent import plan_exit
 from agents.journal_agent import stats as journal_stats
 from agents.market_index import market_index
+from agents.news_agent import get_crypto_news, get_news_for_symbol
+from agents.paper_agent import PaperError, open_position
 from agents.paper_agent import portfolio as paper_portfolio
-from agents.scanner_agent import scan
+from agents.scanner_agent import scan_all
 from agents.skeptic_agent import skeptic
 from agents.ta_agent import analyze
 from agents.whale_agent import get_whales
@@ -57,6 +60,11 @@ _INDEX_CACHE: dict = {"data": None, "updated_at": None}
 _SCAN_CACHE: dict = {"data": None, "updated_at": None}
 _BRIEF_CACHE: dict = {"data": None, "updated_at": None}
 
+# Кэш Машины времени: ключ (symbol, side, tf, округлённые уровни) → (ts, data).
+# Монте-Карло тяжёлый (~7с), поэтому держим результат 10 минут.
+_TM_CACHE: dict = {}
+_TM_TTL = 600.0
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -73,7 +81,8 @@ async def _refresh_index() -> None:
 
 async def _refresh_scan() -> None:
     try:
-        findings = await scan(timeframe="1h", top_n=30)
+        # Вся вселенная USDT-пар (главная = сканер): параллельно, ≤3 мин.
+        findings = await scan_all(timeframe="1h")
         _SCAN_CACHE["data"] = findings
         _SCAN_CACHE["updated_at"] = _now_iso()
     except Exception:  # noqa: BLE001
@@ -240,6 +249,81 @@ async def api_ta(request: web.Request) -> web.Response:
         return _resp({"ok": False, "error": str(exc)})
 
 
+async def api_news(request: web.Request) -> web.Response:
+    """Новости: по паре (symbol=...) или общая лента (без symbol)."""
+    try:
+        symbol = request.query.get("symbol", "").strip().upper()
+        limit = min(int(request.query.get("limit", "6")), 20)
+        if symbol:
+            items = await get_news_for_symbol(symbol, limit=limit)
+            return _resp({"ok": True, "symbol": symbol, "news": items,
+                          "empty_text": None if items else
+                          "Свежих новостей по этой монете за 24ч нет"})
+        items = await get_crypto_news(limit=limit)
+        return _resp({"ok": True, "news": items})
+    except Exception as exc:  # noqa: BLE001
+        return _resp({"ok": False, "error": str(exc)})
+
+
+async def api_timemachine(request: web.Request) -> web.Response:
+    """Машина времени: Монте-Карло (5-мин бары) + исторический replay.
+
+    Тяжёлый расчёт (~7с) — результат кэшируется на 10 минут по ключу сетапа.
+    """
+    try:
+        symbol = request.query.get("symbol", "BTCUSDT").upper()
+        tf = request.query.get("tf", "1h")
+        side = request.query.get("side", "long")
+        entry = float(request.query["entry"])
+        stop = float(request.query["stop"])
+        target = float(request.query["target"])
+    except (KeyError, ValueError):
+        return _resp({"ok": False, "error": "Нужны entry, stop, target."})
+
+    key = (symbol, side, tf, round(entry, 6), round(stop, 6), round(target, 6))
+    now = datetime.now(timezone.utc).timestamp()
+    cached = _TM_CACHE.get(key)
+    if cached is not None and now - cached[0] < _TM_TTL:
+        return _resp({"ok": True, "timemachine": cached[1], "cached": True})
+    try:
+        data = await time_machine(symbol, tf, side, entry, stop, target)
+    except Exception as exc:  # noqa: BLE001
+        return _resp({"ok": False, "error": str(exc)})
+    _TM_CACHE[key] = (now, data)
+    return _resp({"ok": True, "timemachine": data, "cached": False})
+
+
+async def api_paper_open(request: web.Request) -> web.Response:
+    """Билет (paper): открыть виртуальную позицию ПОСЛЕ подтверждения на фронте.
+
+    Тело JSON: symbol, side, qty, entry, stop, take. Live-ордеров здесь нет —
+    только бумажный счёт. Реальное исполнение — только через broker с его правилами.
+    """
+    try:
+        user_id = int(request.match_info["user_id"])
+        body = await request.json()
+        symbol = str(body["symbol"]).upper()
+        side = str(body["side"])
+        qty = float(body["qty"])
+        entry = float(body["entry"])
+        stop = body.get("stop")
+        take = body.get("take")
+        stop = float(stop) if stop not in (None, "") else None
+        take = float(take) if take not in (None, "") else None
+    except (KeyError, ValueError, TypeError):
+        return _resp({"ok": False, "error": "Некорректный билет (symbol/side/qty/entry)."})
+
+    try:
+        pos = await asyncio.to_thread(
+            open_position, user_id, symbol, side, qty, entry, stop, take
+        )
+        return _resp({"ok": True, "position": pos})
+    except PaperError as exc:
+        return _resp({"ok": False, "error": str(exc)})
+    except Exception as exc:  # noqa: BLE001
+        return _resp({"ok": False, "error": str(exc)})
+
+
 async def api_budget(request: web.Request) -> web.Response:
     try:
         balance = float(request.query.get("balance", "10000"))
@@ -306,7 +390,7 @@ async def api_klines(request: web.Request) -> web.Response:
     try:
         symbol = request.query.get("symbol", "BTCUSDT").upper()
         tf = request.query.get("tf", "1h")
-        limit = min(int(request.query.get("limit", "60")), 120)
+        limit = min(int(request.query.get("limit", "180")), 300)
         raw = await get_klines(symbol, tf, limit=limit)
         candles = [[int(r[0]), float(r[1]), float(r[2]), float(r[3]), float(r[4])]
                    for r in raw]
@@ -362,9 +446,12 @@ def create_app() -> web.Application:
     app.router.add_get("/api/market_index", api_market_index)
     app.router.add_get("/api/scan", api_scan)
     app.router.add_get("/api/brief", api_brief)
+    app.router.add_get("/api/news", api_news)
+    app.router.add_get("/api/timemachine", api_timemachine)
     app.router.add_get("/api/whales", api_whales)
     app.router.add_get("/api/journal/{user_id}", api_journal)
     app.router.add_get("/api/paper/{user_id}", api_paper)
+    app.router.add_post("/api/paper/{user_id}/open", api_paper_open)
     app.router.add_get("/api/entry", api_entry)
     app.router.add_get("/api/exit", api_exit)
     app.router.add_get("/api/budget", api_budget)
@@ -372,6 +459,10 @@ def create_app() -> web.Application:
     app.router.add_get("/api/risk", api_risk)
     app.router.add_get("/api/alerts/{user_id}", api_alerts)
     app.router.add_get("/api/klines", api_klines)
+    # Статика: локально поставленные библиотеки (TradingView Lightweight Charts).
+    _vendor = _INDEX.parent / "vendor"
+    if _vendor.is_dir():
+        app.router.add_static("/vendor/", path=str(_vendor), name="vendor")
     app.on_startup.append(_on_startup)
     app.on_cleanup.append(_on_cleanup)
     return app

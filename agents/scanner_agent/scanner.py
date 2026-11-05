@@ -4,6 +4,8 @@
 """
 from __future__ import annotations
 
+import asyncio
+import os
 import time
 
 import pandas as pd
@@ -14,11 +16,20 @@ from agents.ta_agent import indicators as ind
 DEFAULT_TIMEFRAME = "1h"
 DEFAULT_TOP_N = 30
 _CANDLES = 200           # достаточно для RSI и ориентира по EMA200
-_TIME_BUDGET = 85.0      # мягкий дедлайн, сек
+_TIME_BUDGET = 85.0      # мягкий дедлайн, сек (топ-N, последовательный скан)
 _VOL_WINDOW = 20
+_MAX_STALE_MS = 3 * 24 * 3600 * 1000  # пара «мертва», если последний бар старше 3 суток
+
+# Скан всей вселенной: сколько пар максимум (по объёму) и параллельность.
+UNIVERSE_CAP = int(os.environ.get("SCAN_UNIVERSE_CAP", "400"))
+UNIVERSE_CONCURRENCY = int(os.environ.get("SCAN_CONCURRENCY", "24"))
+UNIVERSE_TIME_BUDGET = float(os.environ.get("SCAN_UNIVERSE_BUDGET", "170"))  # ≤3 мин
 
 # Исключаем стейблкоины и leveraged-токены из вселенной.
-_STABLE_BASES = {"USDC", "BUSD", "FDUSD", "TUSD", "USDP", "DAI", "USDD", "EUR"}
+_STABLE_BASES = {
+    "USDC", "BUSD", "FDUSD", "TUSD", "USDP", "DAI", "USDD", "EUR",
+    "USD1", "USDE", "AEUR", "XUSD", "EURI", "GUSD", "USTC", "PYUSD",
+}
 _LEVERAGED_MARKERS = ("UP", "DOWN", "BULL", "BEAR")
 
 
@@ -163,12 +174,22 @@ def score_setup(m: dict) -> tuple[int, list[dict]]:
     return score, factors
 
 
-async def _scan_pair(ticker: dict, timeframe: str) -> dict | None:
+async def _scan_pair(
+    ticker: dict, timeframe: str, require_pattern: bool = True
+) -> dict | None:
     symbol = str(ticker.get("symbol", "")).upper()
     try:
         raw = await get_klines(symbol, timeframe, limit=_CANDLES)
     except DataAgentError:
         return None  # сбой по паре не ломает весь скан
+
+    # Отбрасываем «мёртвые» пары: в 24ч-тикере ещё числятся, но свечи заморожены
+    # (делистинг/остановка торгов) — показывать их как живые было бы нечестно.
+    try:
+        if (time.time() * 1000 - int(raw[-1][0])) > _MAX_STALE_MS:
+            return None
+    except (TypeError, ValueError, IndexError):
+        pass
 
     close = pd.to_numeric(pd.Series([c[4] for c in raw]), errors="coerce")
     high = pd.to_numeric(pd.Series([c[2] for c in raw]), errors="coerce")
@@ -201,7 +222,7 @@ async def _scan_pair(ticker: dict, timeframe: str) -> dict | None:
     patterns = _detect_patterns(
         rsi_now, rsi_prev, price, ema200, change_24h, vol_ratio
     )
-    if not patterns:
+    if require_pattern and not patterns:
         return None
 
     swing_highs, swing_lows = ind.swing_levels(high, low, window=5)
@@ -259,6 +280,62 @@ async def scan(timeframe: str = DEFAULT_TIMEFRAME, top_n: int = DEFAULT_TOP_N) -
     # Сначала по силе сетапа, затем по числу паттернов.
     findings.sort(
         key=lambda f: (f.get("score", 0), len(f["patterns"])),
+        reverse=True,
+    )
+    return findings
+
+
+def _select_all_universe(tickers: list[dict], cap: int) -> list[dict]:
+    """Все торгуемые USDT-пары (без стейблов и leveraged), срез по объёму до cap."""
+    usdt = [t for t in tickers if _is_tradable_usdt(str(t.get("symbol", "")))]
+
+    def _volume(t: dict) -> float:
+        try:
+            return float(t.get("quoteVolume", 0.0))
+        except (TypeError, ValueError):
+            return 0.0
+
+    usdt.sort(key=_volume, reverse=True)
+    return usdt[:cap] if cap > 0 else usdt
+
+
+async def scan_all(
+    timeframe: str = DEFAULT_TIMEFRAME,
+    cap: int = UNIVERSE_CAP,
+    concurrency: int = UNIVERSE_CONCURRENCY,
+) -> list[dict]:
+    """Просканировать всю вселенную USDT-пар (параллельно) и вернуть ВСЕ находки.
+
+    В отличие от scan() возвращает каждую пару со скорингом сетапа (не только
+    совпавшие с паттерном) — таблица на сайте сортируется по силе сетапа сама.
+    Полный проход укладывается в мягкий дедлайн (≤3 минут); пары, не успевшие
+    или сбойные, просто выпадают. Пустой список — честный результат.
+    """
+    tickers = await get_all_tickers_24h()
+    universe = _select_all_universe(tickers, cap)
+
+    sem = asyncio.Semaphore(max(1, concurrency))
+    deadline = time.monotonic() + UNIVERSE_TIME_BUDGET
+
+    async def _one(ticker: dict) -> dict | None:
+        if time.monotonic() > deadline:
+            return None
+        async with sem:
+            if time.monotonic() > deadline:
+                return None
+            try:
+                return await _scan_pair(ticker, timeframe, require_pattern=False)
+            except DataAgentError:
+                return None
+            except Exception:  # noqa: BLE001 — сбой по паре не валит весь скан
+                return None
+
+    results = await asyncio.gather(*(_one(t) for t in universe))
+    findings = [r for r in results if r is not None]
+
+    # По силе сетапа (desc), затем по числу паттернов — слабые идут вниз сами.
+    findings.sort(
+        key=lambda f: (f.get("score", 0), len(f.get("patterns", []))),
         reverse=True,
     )
     return findings

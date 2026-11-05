@@ -1230,23 +1230,24 @@ async def _check_new_apis(errors: list[str]) -> None:
                 "components": {"breadth": 24.0, "momentum": 18.0, "volume": 18.0},
                 "updated_at": "2026-01-01T00:00:00+00:00", "pairs": 30}
 
-    async def fake_scan(timeframe="1h", top_n=30):
+    async def fake_scan(timeframe="1h", *a, **k):
+        # scan_all: вся вселенная (здесь — мок из одной пары)
         return [{"symbol": "BTCUSDT", "side": "long", "score": 70,
                  "factors": [{"name": "Тренд", "points": 30, "max": 30}],
-                 "patterns": ["x"], "structure": "bull flag", "change_24h": 3.0,
-                 "price": 80000, "rsi": 55}]
+                 "patterns": ["x"], "structure": "bull flag", "breakout": True,
+                 "change_24h": 3.0, "price": 80000, "rsi": 55, "vol_ratio": 1.6}]
 
     async def fake_brief(top=3):
         return {"generated_at": "2026-01-01T00:00:00+00:00", "timeframe": "1h",
                 "market_summary": "наблюдается 1 ситуаций", "scanned": 1,
                 "news": [], "ideas": [], "filtered_out": []}
 
-    saved = (miniapp_server.market_index, miniapp_server.scan,
+    saved = (miniapp_server.market_index, miniapp_server.scan_all,
              miniapp_server.build_brief, miniapp_server.AUTO_REFRESH)
     saved_cache = (dict(miniapp_server._INDEX_CACHE), dict(miniapp_server._SCAN_CACHE),
                    dict(miniapp_server._BRIEF_CACHE))
     miniapp_server.market_index = fake_index
-    miniapp_server.scan = fake_scan
+    miniapp_server.scan_all = fake_scan
     miniapp_server.build_brief = fake_brief
     miniapp_server.AUTO_REFRESH = False
     miniapp_server._INDEX_CACHE.update({"data": None, "updated_at": None})
@@ -1315,7 +1316,7 @@ async def _check_new_apis(errors: list[str]) -> None:
     finally:
         if client is not None:
             await client.close()
-        (miniapp_server.market_index, miniapp_server.scan,
+        (miniapp_server.market_index, miniapp_server.scan_all,
          miniapp_server.build_brief, miniapp_server.AUTO_REFRESH) = saved
         miniapp_server._INDEX_CACHE.update(saved_cache[0])
         miniapp_server._SCAN_CACHE.update(saved_cache[1])
@@ -1369,9 +1370,34 @@ async def _check_detail_apis(errors: list[str]) -> None:
                 "volatility_state": "умеренная", "volume_state": "средний",
                 "support": 78000.0, "resistance": 85000.0}
 
+    async def f_news_sym(symbol, limit=6):
+        return [{"title": "BTC news", "source": "CoinDesk",
+                 "time": "2026-01-01T00:00:00+00:00", "url": "https://x/1"}]
+
+    async def f_news_all(limit=6):
+        return [{"title": "Market", "source": "Cointelegraph",
+                 "time": "2026-01-01T00:00:00+00:00", "url": "https://x/2"}]
+
+    async def f_tm(symbol, tf, side, entry, stop, target):
+        return {"mc": {"target_first_pct": 30.0, "stop_first_pct": 45.0,
+                       "neither_pct": 25.0, "green_pct": 48.0, "median_close": entry,
+                       "p5_close": entry * 0.95, "p95_close": entry * 1.05, "avg_r": -0.1,
+                       "rr": 1.5, "verdict": "Склоняется к стопу: ...", "notes": [],
+                       "replays": 10000, "seed": 19, "horizon_bars": 288, "days": 60,
+                       "fees_note": "Комиссии и проскальзывание НЕ учтены."},
+                "history": {"ok": True, "trades": 10, "wins": 6, "losses": 4,
+                            "neither": 0, "avg_R": 0.3, "candles_analyzed": 5000},
+                "seed": 19}
+
+    def f_open(uid, symbol, side, qty, price, stop=None, take=None):
+        return {"id": 1, "symbol": symbol, "side": side, "qty": qty,
+                "entry_price": price, "stop": stop, "take": take, "status": "open"}
+
     saved = {n: getattr(miniapp_server, n) for n in
              ("score_entry", "plan_exit", "calc_position", "skeptic",
-              "list_alerts", "get_klines", "get_ticker_24h", "analyze", "AUTO_REFRESH")}
+              "list_alerts", "get_klines", "get_ticker_24h", "analyze",
+              "get_news_for_symbol", "get_crypto_news", "time_machine",
+              "open_position", "AUTO_REFRESH")}
     miniapp_server.score_entry = f_entry
     miniapp_server.plan_exit = f_exit
     miniapp_server.calc_position = f_calc
@@ -1380,6 +1406,10 @@ async def _check_detail_apis(errors: list[str]) -> None:
     miniapp_server.get_klines = f_klines
     miniapp_server.get_ticker_24h = f_ticker
     miniapp_server.analyze = f_ta
+    miniapp_server.get_news_for_symbol = f_news_sym
+    miniapp_server.get_crypto_news = f_news_all
+    miniapp_server.time_machine = f_tm
+    miniapp_server.open_position = f_open
     miniapp_server.AUTO_REFRESH = False
 
     client = None
@@ -1397,6 +1427,9 @@ async def _check_detail_apis(errors: list[str]) -> None:
             "/api/alerts/1",
             "/api/klines?symbol=BTCUSDT&tf=1h",
             "/api/config",
+            "/api/news?symbol=BTCUSDT",
+            "/api/news",
+            "/api/timemachine?symbol=BTCUSDT&side=long&tf=1h&entry=80000&stop=78000&target=83000",
         ]
         for ep in eps:
             t0 = _t.monotonic()
@@ -1415,6 +1448,26 @@ async def _check_detail_apis(errors: list[str]) -> None:
             "/api/exit?symbol=BTCUSDT&side=long&entry=80000&mult=1.0")).json())["exit"]
         if abs(e15["stop"] - e10["stop"]) < 1e-9:
             errors.append("api: пресет выхода (mult) не меняет стоп")
+
+        # Машина времени: Монте-Карло + история, доли в [0,100].
+        tm = (await (await client.get(
+            "/api/timemachine?symbol=BTCUSDT&side=long&tf=1h&entry=80000&stop=78000&target=83000"
+        )).json()).get("timemachine", {})
+        mc = tm.get("mc", {})
+        if not (0 <= mc.get("target_first_pct", -1) <= 100) or "verdict" not in mc:
+            errors.append("api: timemachine mc без корректных долей/вердикта")
+
+        # Билет (paper) создаётся ТОЛЬКО через POST /api/paper/{uid}/open.
+        pr = await client.post("/api/paper/1/open", json={
+            "symbol": "BTCUSDT", "side": "long", "qty": 0.01,
+            "entry": 80000, "stop": 78000, "take": 83000})
+        pd = await pr.json()
+        if pr.status != 200 or not pd.get("ok") or "position" not in pd:
+            errors.append(f"api: paper/open не создал позицию ({pd})")
+        # Без обязательных полей — честная ошибка, не падение.
+        bad = await (await client.post("/api/paper/1/open", json={"symbol": "BTCUSDT"})).json()
+        if bad.get("ok"):
+            errors.append("api: paper/open принял билет без qty/entry")
     except Exception as exc:  # noqa: BLE001
         errors.append(f"api detail: сервер упал — {exc!r}")
     finally:
@@ -1517,19 +1570,100 @@ async def _check_best_setups(errors: list[str]) -> None:
         print(f"  {OK} фильтр (≥70 + скептик 5/5 + риск-гейт PASS); /api/best warming→кэш <2с; пустой — честный текст")
 
 
+async def _check_timemachine(errors: list[str]) -> None:
+    """Машина времени (Монте-Карло): доли ~100%, вердикт, повторяемость при seed — офлайн."""
+    print("\n— Проверяю Машину времени (Монте-Карло, синтетика без сети) …")
+    import math
+    import agents.backtest_agent.engine as eng
+    before = len(errors)
+
+    base = 1_700_000_000_000
+    bars = []
+    for i in range(3000):
+        mid = 100 + 3 * math.sin(i / 20.0)
+        bars.append([base + i * 300_000, mid, mid + 1.2, mid - 1.2, mid, 10.0,
+                     base + i * 300_000 + 299_999, 0, 0, 0, 0, 0])
+
+    async def f_range(symbol, interval, total, concurrency=10):
+        return bars[-total:] if total < len(bars) else bars
+
+    async def f_hist(symbol, interval, total, batch=1000):
+        return bars[-min(total, len(bars)):]
+
+    saved = (eng.get_klines_range, eng.get_klines_history)
+    eng.get_klines_range = f_range
+    eng.get_klines_history = f_hist
+    try:
+        tm = await eng.time_machine("BTCUSDT", "1h", "long", 100.0, 98.0, 103.0)
+        mc = tm["mc"]
+        tot = mc["target_first_pct"] + mc["stop_first_pct"] + mc["neither_pct"]
+        if abs(tot - 100.0) > 0.5:
+            errors.append(f"timemachine: доли не сходятся к 100 ({tot})")
+        for k in ("target_first_pct", "stop_first_pct", "neither_pct", "green_pct",
+                  "median_close", "verdict", "seed", "fees_note"):
+            if k not in mc:
+                errors.append(f"timemachine: нет поля {k}")
+        if "учтены" not in mc.get("fees_note", ""):
+            errors.append("timemachine: нет оговорки про комиссии/проскальзывание")
+        if not (tm.get("history") or {}).get("ok"):
+            errors.append("timemachine: история (replay) не посчиталась")
+        # Повторяемость: тот же seed → те же числа.
+        tm2 = await eng.time_machine("BTCUSDT", "1h", "long", 100.0, 98.0, 103.0)
+        if tm2["mc"]["target_first_pct"] != mc["target_first_pct"] \
+                or tm2["mc"]["median_close"] != mc["median_close"]:
+            errors.append("timemachine: результат не повторяется при одном seed")
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"timemachine: упал — {exc!r}")
+    finally:
+        eng.get_klines_range, eng.get_klines_history = saved
+    if len(errors) == before:
+        print(f"  {OK} Монте-Карло: доли ~100%, вердикт, комиссии оговорены, повторяемость")
+
+
 def _check_index_html(errors: list[str]) -> None:
-    """index.html: 16 экранов (с Топ-идеями) и нет захардкоженных цен из мокапов."""
-    print("\n— Проверяю index.html (16 экранов, без хардкода цен) …")
+    """index.html: конвейер — 3 раздела + сетап ①–⑧, Lightweight Charts, WS, честность."""
+    print("\n— Проверяю index.html (конвейер: 3 раздела + сетап ①–⑧) …")
     before = len(errors)
     root = os.path.dirname(os.path.abspath(__file__))
     with open(os.path.join(root, "miniapp", "index.html"), encoding="utf-8") as fh:
         html = fh.read()
 
+    # Четыре экрана: Сканер (главная), Сетап, Портфель, Алерты.
     screens = html.count('class="screen')
-    if screens != 16:
-        errors.append(f"index.html: экранов {screens}, ожидалось 16")
-    if 's-best' not in html:
-        errors.append("index.html: нет экрана Топ-идей (s-best)")
+    if screens != 4:
+        errors.append(f"index.html: экранов {screens}, ожидалось 4 (сканер/сетап/портфель/алерты)")
+    for sid in ('id="s-scanner"', 'id="s-setup"', 'id="s-portfolio"', 'id="s-alerts"'):
+        if sid not in html:
+            errors.append(f"index.html: нет экрана {sid}")
+    # Навигация ровно из трёх пунктов.
+    if html.count('class="nav-item') != 3:
+        errors.append("index.html: в сайдбаре должно быть ровно 3 пункта навигации")
+    # Убранные отдельные разделы не должны быть экранами.
+    for gone in ('id="s-best"', 'id="s-overview"', 'id="s-ta"', 'id="s-coordinator"',
+                 'id="s-whale"', 'id="s-budget"', 'id="s-risk"'):
+        if gone in html:
+            errors.append(f"index.html: лишний экран остался — {gone}")
+    # Восемь шагов конвейера.
+    for st in ('step-chart', 'step-news', 'step-entry', 'step-exit',
+               'step-tm', 'step-budget', 'step-risk', 'step-ticket'):
+        if st not in html:
+            errors.append(f"index.html: нет шага сетапа {st}")
+    for mark in ('①', '④', '⑧'):
+        if mark not in html:
+            errors.append(f"index.html: нет маркера шага {mark}")
+    # График — локальный Lightweight Charts, не встроенный виджет TradingView.
+    if "vendor/lightweight-charts" not in html:
+        errors.append("index.html: не подключён локальный Lightweight Charts")
+    if "LightweightCharts" not in html:
+        errors.append("index.html: нет вызова LightweightCharts")
+    # Реальное время — WebSocket Binance.
+    if "wss://stream.binance.com" not in html:
+        errors.append("index.html: нет WebSocket Binance для живых данных")
+    # Клик по строке сканера ведёт в сетап; билет открывается только по подтверждению.
+    if "openSetup(" not in html:
+        errors.append("index.html: клик по строке сканера не открывает сетап")
+    if "confirmTicket(" not in html or "/open" not in html:
+        errors.append("index.html: нет подтверждения билета (paper)")
 
     forbidden_nums = ["67,428", "67428", "2,654", "164.82", "164,82",
                       "67,000", "67000", "66,912", "65,873", "62,418"]
@@ -1539,8 +1673,10 @@ def _check_index_html(errors: list[str]) -> None:
 
     if "Не финансовый совет. Наблюдения, не рекомендации" not in html:
         errors.append("index.html: нет футер-дисклеймера")
+    if "Скоринг — качество сетапа" not in html:
+        errors.append("index.html: нет оговорки про скоринг (качество, не вероятность)")
     if len(errors) == before:
-        print(f"  {OK} экранов 16, захардкоженных цен нет, дисклеймер на месте")
+        print(f"  {OK} 3 раздела + сетап ①–⑧, Lightweight Charts, WebSocket, честность на месте")
 
 
 async def _check_paper_limit_no_network(errors: list[str]) -> None:
@@ -1789,6 +1925,7 @@ async def _run() -> int:
     await _check_new_apis(errors)
     await _check_detail_apis(errors)
     await _check_best_setups(errors)
+    await _check_timemachine(errors)
     _check_index_html(errors)
     _check_autopush(errors)
     await _check_autopush_source(errors)

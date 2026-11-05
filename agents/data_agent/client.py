@@ -25,8 +25,9 @@ SPOT_HOSTS = (
 # Хосты фьючерсов USDT-M (для funding rate).
 FUTURES_HOSTS = ("https://fapi.binance.com",)
 
-#: Разрешённые таймфреймы свечей.
-ALLOWED_INTERVALS = ("15m", "1h", "4h", "1d")
+#: Разрешённые таймфреймы свечей. 5m — для Монте-Карло Машины времени
+#: (в UI-переключателе таймфреймов не используется).
+ALLOWED_INTERVALS = ("5m", "15m", "1h", "4h", "1d")
 
 _CACHE_TTL = 60  # секунд
 _RETRIES = 1     # один повтор после первой сетевой неудачи
@@ -166,6 +167,87 @@ async def get_klines_history(
     if not collected:
         raise DataAgentError("Binance вернул пустой набор свечей.")
     return collected[-total:]
+
+
+#: Длительность интервала в миллисекундах (для оконной выборки истории).
+_INTERVAL_MS = {
+    "5m": 5 * 60_000,
+    "15m": 15 * 60_000,
+    "1h": 60 * 60_000,
+    "4h": 4 * 60 * 60_000,
+    "1d": 24 * 60 * 60_000,
+}
+
+
+async def get_klines_range(
+    symbol: str,
+    interval: str,
+    total: int,
+    concurrency: int = 10,
+) -> list[list]:
+    """Исторические свечи глубиной `total` — окнами по startTime, ПАРАЛЛЕЛЬНО.
+
+    В отличие от get_klines_history (последовательная пагинация назад по времени)
+    делит диапазон на окна по 1000 свечей и забирает их одновременно — для
+    глубокой истории (напр. 60 дней 5-мин баров) это в разы быстрее. Возвращает
+    хронологический список без дублей, не длиннее `total`.
+    """
+    interval = interval.lower()
+    if interval not in ALLOWED_INTERVALS:
+        raise DataAgentError(
+            f"Неподдерживаемый таймфрейм: {interval}. "
+            f"Доступны: {', '.join(ALLOWED_INTERVALS)}."
+        )
+    step = _INTERVAL_MS.get(interval)
+    if step is None:
+        raise DataAgentError(f"Нет шага времени для интервала {interval}.")
+    symbol = symbol.upper()
+    total = max(1, int(total))
+
+    # Якорь — последний ДОСТУПНЫЙ бар пары, а не стенные часы: для пар с
+    # замороженной/прекращённой историей окна по «сейчас» были бы пустыми.
+    try:
+        probe = await _request(SPOT_HOSTS, "/api/v3/klines",
+                               {"symbol": symbol, "interval": interval, "limit": 1})
+        anchor_ms = int(probe[-1][0]) + step if isinstance(probe, list) and probe \
+            else int(time.time() * 1000)
+    except DataAgentError:
+        anchor_ms = int(time.time() * 1000)
+
+    span = total * step
+    start_ms = anchor_ms - span
+    n_windows = (total + 999) // 1000
+
+    sem = asyncio.Semaphore(max(1, concurrency))
+
+    async def _window(w: int) -> list[list]:
+        win_start = start_ms + w * 1000 * step
+        params = {
+            "symbol": symbol,
+            "interval": interval,
+            "startTime": win_start,
+            "limit": 1000,
+        }
+        async with sem:
+            try:
+                data = await _request(SPOT_HOSTS, "/api/v3/klines", params)
+            except DataAgentError:
+                return []
+        return data if isinstance(data, list) else []
+
+    chunks = await asyncio.gather(*(_window(w) for w in range(n_windows)))
+
+    merged: dict[int, list] = {}
+    for chunk in chunks:
+        for row in chunk:
+            try:
+                merged[int(row[0])] = row
+            except (TypeError, ValueError, IndexError):
+                continue
+    if not merged:
+        raise DataAgentError("Binance вернул пустой набор свечей.")
+    ordered = [merged[k] for k in sorted(merged)]
+    return ordered[-total:]
 
 
 async def get_ticker_24h(symbol: str) -> dict:

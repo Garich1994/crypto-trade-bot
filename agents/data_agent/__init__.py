@@ -5,6 +5,7 @@ from agents.data_agent.client import (
     get_funding_rate,
     get_klines,
     get_klines_history,
+    get_klines_range,
     get_ticker_24h,
 )
 
@@ -12,6 +13,7 @@ __all__ = [
     "DataAgentError",
     "get_klines",
     "get_klines_history",
+    "get_klines_range",
     "get_ticker_24h",
     "get_all_tickers_24h",
     "get_agg_trades",

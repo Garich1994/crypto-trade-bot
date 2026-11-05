@@ -8,6 +8,7 @@
 <meta http-equiv="Expires" content="0">
 <title>CryptoPilot</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="vendor/lightweight-charts.standalone.production.js"></script>
 <style>
   :root{
     --bg:#06080c; --bg2:#0b0e14; --panel:#0c1017; --card:#111621; --card2:#161c28;
@@ -17,22 +18,22 @@
   *{box-sizing:border-box}
   html,body{margin:0;background:var(--bg);color:var(--text);
     font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;font-size:14px;-webkit-font-smoothing:antialiased}
-  a{color:inherit}
+  a{color:inherit;text-decoration:none}
   .muted{color:var(--muted)} .up{color:var(--green)} .down{color:var(--red)} .gold{color:var(--gold)}
 
-  /* ===== shell: sidebar + main ===== */
   .shell{display:grid;grid-template-columns:248px minmax(0,1fr);max-width:1600px;margin:0 auto;min-height:100vh}
-
   .sidebar{background:linear-gradient(180deg,var(--panel),var(--bg));border-right:1px solid var(--line);
     padding:16px 12px;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow:auto}
   .logo{display:flex;align-items:center;gap:9px;font-weight:800;font-size:18px;padding:6px 8px 16px}
   .logo .b{color:var(--gold)} .mono{width:28px;height:28px}
-  .nav-item{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:10px;color:var(--muted);
-    cursor:pointer;font-size:13.5px;font-weight:600;margin-bottom:2px;transition:.12s}
+  .nav-item{display:flex;align-items:center;gap:11px;padding:11px 12px;border-radius:10px;color:var(--muted);
+    cursor:pointer;font-size:13.5px;font-weight:600;margin-bottom:3px;transition:.12s}
   .nav-item .ni{width:20px;text-align:center;font-size:15px}
   .nav-item:hover{background:var(--card);color:var(--text)}
-  .nav-item.on{background:linear-gradient(90deg,rgba(232,179,61,.16),rgba(232,179,61,.03));color:var(--gold);
-    box-shadow:inset 2px 0 0 var(--gold)}
+  .nav-item.on{background:linear-gradient(90deg,rgba(232,179,61,.16),rgba(232,179,61,.03));color:var(--gold);box-shadow:inset 2px 0 0 var(--gold)}
+  .side-sep{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;padding:14px 12px 6px;font-weight:700}
+  .side-flow{font-size:11.5px;color:var(--muted);line-height:1.85;padding:4px 12px}
+  .side-flow b{color:var(--text);font-weight:600}
   .side-foot{margin-top:auto;padding:12px 10px 2px;font-size:10.5px;color:var(--muted);line-height:1.5;border-top:1px solid var(--line)}
 
   .main{display:flex;flex-direction:column;min-width:0}
@@ -41,7 +42,6 @@
   .back{width:34px;height:34px;border-radius:9px;border:1px solid var(--line);background:var(--card);
     display:none;align-items:center;justify-content:center;cursor:pointer;font-size:19px;color:var(--gold)}
   .back.show{display:flex}
-  .burger{display:none}
   .crumb{font-weight:800;font-size:16px}
   .topbar .spacer{flex:1}
   .pill{display:inline-flex;align-items:center;gap:6px;padding:6px 13px;border-radius:999px;font-size:12.5px;font-weight:700;
@@ -54,122 +54,134 @@
   .conn .dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
   .conn.ok .dot{background:var(--green);box-shadow:0 0 7px rgba(14,203,129,.8)} .conn.ok{color:var(--green)}
   .conn.bad .dot{background:var(--red)} .conn.bad{color:var(--red)}
+  .conn.live .dot{background:var(--green);animation:pulse 1.6s infinite} .conn.live{color:var(--green)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 
-  .viewport{padding:22px 24px 10px;flex:1}
+  .viewport{padding:20px 24px 10px;flex:1}
   .footbar{padding:12px 24px;border-top:1px solid var(--line);text-align:center;font-size:11.5px;color:var(--muted)}
 
-  /* ===== screens ===== */
   .screen{display:none;animation:fade .18s ease}
   .screen.active{display:block}
   @keyframes fade{from{opacity:.3;transform:translateY(4px)}to{opacity:1;transform:none}}
-  .narrow{max-width:860px}
-
-  .shead{display:flex;align-items:center;gap:13px;margin:0 0 18px}
-  .shead .ic{width:44px;height:44px;border-radius:12px;flex:0 0 44px;display:flex;align-items:center;justify-content:center;font-size:22px;
-    background:radial-gradient(circle at 30% 25%,rgba(232,179,61,.26),rgba(232,179,61,.04));border:1px solid rgba(232,179,61,.4)}
-  .shead h1{margin:0;font-size:21px;font-weight:800}
-  .shead .sub{color:var(--muted);font-size:12.5px;margin-top:2px}
-
-  .g2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-  .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
-  .g4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
-  .span2{grid-column:span 2}
 
   .card{background:linear-gradient(180deg,var(--card),var(--bg2));border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:16px}
   .card.glow{border:1px solid rgba(232,179,61,.42);box-shadow:0 0 0 1px rgba(232,179,61,.08),0 12px 36px rgba(232,179,61,.06)}
   .card:last-child{margin-bottom:0}
   .h2{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:0 0 12px}
+  .srcnote{font-size:12px;color:var(--muted);line-height:1.5;margin:-2px 0 14px}
 
-  .coin{background:linear-gradient(180deg,var(--card),var(--bg2));border:1px solid rgba(232,179,61,.3);border-radius:14px;padding:14px;position:relative}
-  .coin .s{color:var(--muted);font-size:12px} .coin .p{font-weight:800;font-size:20px;margin:4px 0}
-  .coin .c{font-size:13px;font-weight:700} .coin .spk{position:absolute;right:12px;bottom:12px}
+  /* news strip */
+  .newsstrip{display:flex;gap:10px;overflow-x:auto;padding:4px 0 12px;margin-bottom:6px;scrollbar-width:thin}
+  .newschip{flex:0 0 auto;max-width:340px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    font-size:12.5px;padding:8px 14px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--text)}
+  .newschip:hover{border-color:var(--gold)} .newschip .src{color:var(--muted);margin-left:7px;font-size:11px}
 
-  .gaugewrap{display:flex;align-items:center;gap:18px}
-  .rows .r{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-top:1px solid var(--line);font-size:14px}
+  /* scanner header */
+  .schdr{display:flex;align-items:stretch;gap:16px;margin-bottom:14px;flex-wrap:wrap}
+  .mi-mini{display:flex;align-items:center;gap:14px;background:linear-gradient(180deg,var(--card),var(--bg2));
+    border:1px solid rgba(232,179,61,.3);border-radius:14px;padding:12px 16px;min-width:270px}
+  .mi-mini .rows{flex:1}
+  .scan-meta{flex:1;min-width:220px;display:flex;flex-direction:column;justify-content:center;
+    background:linear-gradient(180deg,var(--card),var(--bg2));border:1px solid var(--line);border-radius:14px;padding:12px 16px}
+  .scan-meta .big{font-size:22px;font-weight:900}
+  .rows .r{display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-top:1px solid var(--line);font-size:13.5px}
   .rows .r:first-child{border-top:0} .r .v{font-weight:700;text-align:right}
   .tag{font-size:11.5px;font-weight:800;padding:2px 11px;border-radius:999px}
   .tag.gold{color:#1a1205;background:linear-gradient(135deg,var(--gold),var(--gold2))}
 
-  .obs{padding:0;margin:0} .obs li{margin:9px 0;list-style:none;display:flex;gap:10px;align-items:flex-start;font-size:14px;cursor:pointer}
-  .obs li:hover{color:var(--gold)} .dotc{width:8px;height:8px;border-radius:50%;margin-top:6px;flex:0 0 8px}
-
-  .cta{display:inline-block;width:100%;text-align:center;padding:13px;border-radius:12px;font-weight:800;font-size:14px;color:#1a1205;
-    background:linear-gradient(135deg,var(--gold),var(--gold2));border:none;cursor:pointer;box-shadow:0 6px 18px rgba(232,179,61,.22)}
-
-  /* scanner table */
-  .srcnote{font-size:12px;color:var(--muted);line-height:1.5;margin:-6px 0 14px}
-  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center}
   .chip{white-space:nowrap;font-size:12.5px;padding:7px 15px;border-radius:999px;border:1px solid var(--line);color:var(--muted);cursor:pointer}
   .chip.on{color:#1a1205;background:linear-gradient(135deg,var(--gold),var(--gold2));border-color:var(--gold);font-weight:700}
+
   table.tbl{width:100%;border-collapse:collapse;font-size:13.5px}
   table.tbl th{text-align:left;color:var(--muted);font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
-    padding:9px 10px;border-bottom:1px solid var(--line2);cursor:pointer;white-space:nowrap;user-select:none}
+    padding:9px 10px;border-bottom:1px solid var(--line2);cursor:pointer;white-space:nowrap;user-select:none;position:sticky;top:0;background:var(--bg2);z-index:2}
+  .scanwrap{overflow:auto;max-height:72vh}
   table.tbl th.num,table.tbl td.num{text-align:right}
   table.tbl th:hover{color:var(--text)} table.tbl th .ar{color:var(--gold)}
-  table.tbl td{padding:11px 10px;border-bottom:1px solid var(--line)}
+  table.tbl td{padding:10px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
   table.tbl tr.row{cursor:pointer} table.tbl tr.row:hover td{background:rgba(232,179,61,.05)}
-  .badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;color:var(--green);background:rgba(14,203,129,.12)}
+  .badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;color:var(--muted);background:var(--card2)}
+  .badge.pat{color:var(--gold);background:rgba(232,179,61,.12)}
+  .badge.l{color:var(--green);background:rgba(14,203,129,.12)} .badge.s{color:var(--red);background:rgba(246,70,93,.12)}
   .sv{font-weight:800;color:var(--gold)}
 
-  .chart{width:100%;height:280px;background:var(--bg2);border:1px solid var(--line);border-radius:12px;overflow:hidden}
-  .chart.sm{height:200px}
-  .lvls{display:flex;gap:10px;margin-top:12px}
-  .lvl{flex:1;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:10px;text-align:center}
+  /* setup flow steps */
+  .setuphd{display:flex;align-items:center;gap:13px;margin:0 0 6px;flex-wrap:wrap}
+  .setuphd h1{margin:0;font-size:22px;font-weight:800}
+  .setuphd .badge{font-size:12px;padding:3px 11px}
+  .flowbar{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 18px}
+  .flowbar .fstep{font-size:11.5px;color:var(--muted);padding:5px 11px;border:1px solid var(--line);border-radius:999px;cursor:pointer}
+  .flowbar .fstep:hover{color:var(--text);border-color:var(--line2)}
+  .step{scroll-margin-top:72px}
+  .step .sh{display:flex;align-items:center;gap:11px;margin:0 0 14px}
+  .step .num{width:30px;height:30px;flex:0 0 30px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-weight:800;
+    background:radial-gradient(circle at 30% 25%,rgba(232,179,61,.26),rgba(232,179,61,.04));border:1px solid rgba(232,179,61,.4);color:var(--gold)}
+  .step .sh h3{margin:0;font-size:16px;font-weight:700;flex:1}
+  .verdict{font-size:12px;font-weight:800;padding:4px 12px;border-radius:999px;white-space:nowrap}
+  .verdict.pass{color:var(--green);background:rgba(14,203,129,.13);border:1px solid rgba(14,203,129,.4)}
+  .verdict.warn{color:var(--gold);background:rgba(232,179,61,.13);border:1px solid rgba(232,179,61,.4)}
+  .verdict.block{color:var(--red);background:rgba(246,70,93,.13);border:1px solid rgba(246,70,93,.4)}
+  .verdict.info{color:var(--blue);background:rgba(74,158,255,.12);border:1px solid rgba(74,158,255,.4)}
+
+  #setup-chart{width:100%;height:360px;background:var(--bg2);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .tfs{display:flex;gap:8px;margin:0 0 12px}
+  .tf{padding:8px 16px;border-radius:10px;border:1px solid var(--line);font-size:13px;color:var(--muted);cursor:pointer}
+  .tf.on{color:#1a1205;background:linear-gradient(135deg,var(--gold),var(--gold2));border-color:var(--gold);font-weight:700}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .legend i{width:14px;height:0;border-top:2px dashed;display:inline-block}
+
+  .lvls{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}
+  .lvl{flex:1;min-width:90px;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:10px;text-align:center}
   .lvl .k{color:var(--muted);font-size:11px} .lvl .v{font-weight:800;font-size:15px;margin-top:3px}
 
-  .chk{display:flex;align-items:center;justify-content:space-between;padding:9px 0;font-size:14px;border-top:1px solid var(--line)}
+  .chk{display:flex;align-items:center;justify-content:space-between;padding:9px 0;font-size:14px;border-top:1px solid var(--line);gap:10px}
   .chk:first-child{border-top:0}
   .pass{color:var(--green);font-weight:700} .fail{color:var(--red);font-weight:700}
-
-  .tfs,.tabs{display:flex;gap:8px;margin:0 0 14px}
-  .tf,.tb{padding:9px 18px;border-radius:10px;border:1px solid var(--line);font-size:13px;color:var(--muted);cursor:pointer}
-  .tf.on,.tb.on{color:#1a1205;background:linear-gradient(135deg,var(--gold),var(--gold2));border-color:var(--gold);font-weight:700}
-  .psel{flex:1;max-width:260px;padding:9px 12px;border-radius:10px;border:1px solid var(--line2);background:var(--card2);color:var(--text);font-size:13.5px;cursor:pointer}
-  .psel:focus{outline:none;border-color:var(--gold)}
-
-  .tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .tiles.c3{grid-template-columns:repeat(3,1fr)}
   .tile{background:var(--card2);border:1px solid var(--line);border-radius:11px;padding:13px;text-align:center}
   .tile .k{color:var(--muted);font-size:11px} .tile .v{font-weight:800;font-size:18px;margin-top:4px}
-
-  .passbox{text-align:center;padding:22px;border-radius:14px;margin-bottom:16px;
-    border:1px solid rgba(14,203,129,.45);background:radial-gradient(circle at 50% 0,rgba(14,203,129,.13),rgba(14,203,129,.02))}
-  .passbox.warn{border-color:rgba(232,179,61,.5);background:radial-gradient(circle at 50% 0,rgba(232,179,61,.13),rgba(232,179,61,.02))}
-  .passbox .p{font-size:32px;font-weight:900;color:var(--green)} .passbox.warn .p{color:var(--gold)}
-
-  .posrow,.whalerow,.toggle,.agentrow{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-top:1px solid var(--line)}
-  .posrow:first-child,.whalerow:first-child,.toggle:first-child,.agentrow:first-child{border-top:0}
-  .toggle>span:first-child{cursor:pointer}
-  .agentrow{cursor:pointer} .agentrow .chev{color:var(--gold);font-size:18px}
-  .sw{width:44px;height:24px;border-radius:999px;background:var(--green);position:relative;flex:0 0 44px;cursor:pointer;transition:background .15s}
-  .sw.off{background:var(--line2)} .sw::after{content:"";position:absolute;top:2px;right:2px;width:20px;height:20px;border-radius:50%;background:#fff;transition:all .15s}
-  .sw.off::after{right:auto;left:2px}
-  .hint{font-size:12px;color:var(--muted);margin-top:11px}
   .ringc{position:relative;display:flex;align-items:center;justify-content:center}
   .ringc .rt{position:absolute;text-align:center}
-  .ringc .rt .big{font-size:28px;font-weight:900} .ringc .rt .lb{font-size:12px;color:var(--muted)}
+  .ringc .rt .big{font-size:26px;font-weight:900} .ringc .rt .lb{font-size:11px;color:var(--muted)}
+  .barwrap{height:9px;background:var(--line);border-radius:999px;overflow:hidden;margin-top:6px}
+  .barwrap > i{display:block;height:100%;border-radius:999px}
+
+  .ticket{border:1px solid rgba(232,179,61,.42);border-radius:14px;padding:18px;background:radial-gradient(circle at 50% 0,rgba(232,179,61,.08),rgba(232,179,61,.01))}
+  .ticket .big{font-size:15px;font-weight:800;margin-bottom:12px}
+  .cta{display:inline-block;width:100%;text-align:center;padding:14px;border-radius:12px;font-weight:800;font-size:14px;color:#1a1205;
+    background:linear-gradient(135deg,var(--gold),var(--gold2));border:none;cursor:pointer;box-shadow:0 6px 18px rgba(232,179,61,.22)}
+  .cta.block{background:var(--card2);color:var(--muted);box-shadow:none;cursor:not-allowed}
+  .cta.ghost{background:transparent;border:1px solid var(--line2);color:var(--text);box-shadow:none}
+  .hint{font-size:12px;color:var(--muted);margin-top:11px;line-height:1.5}
+
+  .tabs{display:flex;gap:8px;margin:0 0 14px}
+  .tb{padding:9px 18px;border-radius:10px;border:1px solid var(--line);font-size:13px;color:var(--muted);cursor:pointer}
+  .tb.on{color:#1a1205;background:linear-gradient(135deg,var(--gold),var(--gold2));border-color:var(--gold);font-weight:700}
+  .toggle{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-top:1px solid var(--line)}
+  .toggle:first-child{border-top:0}
+  .sw{width:44px;height:24px;border-radius:999px;background:var(--green);position:relative;flex:0 0 44px;cursor:pointer}
+  .sw.off{background:var(--line2)} .sw::after{content:"";position:absolute;top:2px;right:2px;width:20px;height:20px;border-radius:50%;background:#fff;transition:all .15s}
+  .sw.off::after{right:auto;left:2px}
   .guest{border:1px solid rgba(232,179,61,.45);background:radial-gradient(circle at 30% 0,rgba(232,179,61,.1),rgba(232,179,61,.02))}
-  .acts{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}
-  .acts>button{flex:1;min-width:120px;padding:12px;border-radius:11px;font-weight:800;font-size:13.5px;cursor:pointer}
-  .acts .buy{color:#1a1205;background:linear-gradient(135deg,var(--gold),var(--gold2));border:none}
-  .acts .sell{color:var(--red);background:transparent;border:1px solid rgba(246,70,93,.5)}
-  .acts .snap{color:var(--gold);background:transparent;border:1px solid rgba(232,179,61,.5)}
-  .wdg{cursor:pointer}
+  .g2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 
-  /* mobile bottom nav — hidden on desktop */
   .mobnav{display:none}
-
-  /* ===== responsive: collapse to mobile (Telegram WebApp / phones) ===== */
   @media (max-width:900px){
     .shell{grid-template-columns:1fr}
     .sidebar{display:none}
     .viewport{padding:14px 15px 120px}
     .topbar{padding:12px 15px}
-    .g2,.g3,.g4{grid-template-columns:1fr} .span2{grid-column:auto}
-    .chart{height:210px}
+    .g2{grid-template-columns:1fr}
+    .tiles,.tiles.c3{grid-template-columns:1fr 1fr}
+    #setup-chart{height:260px}
+    .scanwrap{max-height:none}
     .footbar{display:none}
     .mobnav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:40;align-items:center;justify-content:space-around;
       background:rgba(11,14,20,.98);padding:8px 2px calc(8px + env(safe-area-inset-bottom));border-top:1px solid var(--line);backdrop-filter:blur(10px)}
-    .mobnav .mdisc{position:fixed;left:0;right:0;bottom:calc(58px + env(safe-area-inset-bottom));text-align:center;font-size:10.5px;color:var(--muted);background:rgba(6,8,12,.94);padding:5px 10px;border-top:1px solid var(--line)}
+    .mdisc{position:fixed;left:0;right:0;bottom:calc(58px + env(safe-area-inset-bottom));text-align:center;font-size:10.5px;color:var(--muted);background:rgba(6,8,12,.94);padding:5px 10px;border-top:1px solid var(--line);z-index:40}
     .tab{display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--muted);font-size:10px;cursor:pointer}
     .tab .ti{font-size:18px} .tab.on{color:var(--gold)}
     table.tbl{font-size:12.5px} table.tbl .hide-m{display:none}
@@ -179,30 +191,20 @@
 </head>
 <body>
 <div class="shell">
-  <!-- ===== SIDEBAR (desktop) ===== -->
   <aside class="sidebar">
     <div class="logo"><svg class="mono" viewBox="0 0 32 32" fill="none"><rect x="1" y="1" width="30" height="30" rx="8" stroke="#e8b33d" stroke-width="1.5"/><path d="M7 21l5-6 4 3 7-9" stroke="#e8b33d" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="23" cy="9" r="2" fill="#e8b33d"/></svg><span>Crypto<span class="b">Pilot</span></span></div>
-    <div class="nav-item on" data-s="s-overview"><span class="ni">🏠</span>Обзор</div>
-    <div class="nav-item" data-s="s-best"><span class="ni">💡</span>Топ-идеи</div>
-    <div class="nav-item" data-s="s-scanner"><span class="ni">🔍</span>Сканер</div>
-    <div class="nav-item" data-s="s-ta"><span class="ni">📊</span>Аналитика</div>
-    <div class="nav-item" data-s="s-entry"><span class="ni">⏱</span>Вход</div>
-    <div class="nav-item" data-s="s-exit"><span class="ni">🚪</span>Выход</div>
-    <div class="nav-item" data-s="s-budget"><span class="ni">💼</span>Бюджет</div>
-    <div class="nav-item" data-s="s-risk"><span class="ni">🛡</span>Риск</div>
-    <div class="nav-item" data-s="s-paper"><span class="ni">🧪</span>Портфель</div>
-    <div class="nav-item" data-s="s-journal"><span class="ni">📒</span>Журнал</div>
-    <div class="nav-item" data-s="s-whale"><span class="ni">🐋</span>Киты</div>
-    <div class="nav-item" data-s="s-coordinator"><span class="ni">🧭</span>Координатор</div>
+    <div class="nav-item on" data-s="s-scanner"><span class="ni">🔍</span>Сканер</div>
+    <div class="nav-item" data-s="s-portfolio"><span class="ni">🧪</span>Портфель</div>
     <div class="nav-item" data-s="s-alerts"><span class="ni">🔔</span>Алерты</div>
-    <div class="side-foot">⚠️ Не финансовый совет.<br>Наблюдения, не рекомендации.</div>
+    <div class="side-sep">Флоу сетапа</div>
+    <div class="side-flow">① <b>График</b> → ② <b>Новости</b> → ③ <b>Вход</b> → ④ <b>Выход</b> → ⑤ <b>Машина времени</b> → ⑥ <b>Бюджет</b> → ⑦ <b>Риск-гейт</b> → ⑧ <b>Билет</b></div>
+    <div class="side-foot">⚠️ Не финансовый совет.<br>Наблюдения, не рекомендации.<br>Скоринг — качество сетапа, не вероятность.</div>
   </aside>
 
   <div class="main">
-    <!-- ===== TOP BAR ===== -->
     <div class="topbar">
       <div class="back" id="back">‹</div>
-      <div class="crumb" id="crumb">Обзор</div>
+      <div class="crumb" id="crumb">Сканер</div>
       <div class="spacer"></div>
       <span class="pill g2" id="mi-pill">Market Index —</span>
       <span id="hdr-clock">—</span>
@@ -211,187 +213,118 @@
 
     <div class="viewport">
 
-  <!-- 1. ОБЗОР -->
-  <section class="screen active" id="s-overview" data-title="Обзор">
-    <div class="card guest" id="ov-guest" style="display:none"></div>
-    <div class="g4" id="ov-coins" style="margin-bottom:16px"><div class="muted">Загрузка…</div></div>
-    <div class="g2">
-      <div class="card glow">
-        <div class="h2">Market Index</div>
-        <div class="gaugewrap"><div id="ov-gauge"></div>
-          <div class="rows" style="flex:1">
-            <div class="r"><span class="muted">Индекс рынка</span><span class="v" id="ov-idx">—</span></div>
-            <div class="r"><span class="muted">Широта</span><span class="v" id="ov-breadth">—</span></div>
-            <div class="r"><span class="muted">Импульс</span><span class="v" id="ov-mom">—</span></div>
-            <div class="r"><span class="muted">Объём</span><span class="v" id="ov-vol">—</span></div>
-          </div></div>
-        <div class="hint" id="ov-hint">Широта + импульс + объём. Режим рынка, не прогноз.</div>
+  <!-- ===== СКАНЕР (главная) ===== -->
+  <section class="screen active" id="s-scanner" data-title="Сканер">
+    <div class="newsstrip" id="news-strip"></div>
+    <div class="schdr">
+      <div class="mi-mini">
+        <div id="mi-gauge"></div>
+        <div class="rows">
+          <div class="r"><span class="muted">Индекс рынка</span><span class="v" id="mi-val">—</span></div>
+          <div class="r"><span class="muted">Широта</span><span class="v" id="mi-breadth">—</span></div>
+          <div class="r"><span class="muted">Импульс · Объём</span><span class="v" id="mi-mom">—</span></div>
+        </div>
       </div>
-      <div class="card"><div class="h2">⚡ Ключевые наблюдения</div><ul class="obs" id="ov-obs"><li class="muted">Загрузка…</li></ul>
-        <button class="cta" style="margin-top:10px" onclick="go('s-scanner')">🔍 Открыть сканер</button></div>
+      <div class="scan-meta">
+        <div class="muted" style="font-size:12px">Просканировано USDT-пар спота</div>
+        <div class="big gold" id="sc-count">—</div>
+        <div class="muted" id="sc-upd" style="font-size:11.5px"></div>
+      </div>
     </div>
-    <div class="g3" style="margin-top:16px">
-      <div class="card wdg glow" onclick="go('s-best')"><div class="h2">💡 Топ-3 идеи</div><div id="ov-best"><div class="muted">Загрузка…</div></div></div>
-      <div class="card wdg" onclick="go('s-alerts')"><div class="h2">Последний алерт</div><div id="ov-alert"><div class="muted">—</div></div></div>
-      <div class="card wdg" onclick="go('s-paper')"><div class="h2">Paper-баланс</div><div id="ov-paper"><div class="muted">—</div></div></div>
-    </div>
-  </section>
-
-  <!-- ТОП-ИДЕИ -->
-  <section class="screen" id="s-best" data-title="Топ-идеи">
-    <div class="shead"><div class="ic">💡</div><div><h1>Топ-идеи</h1><div class="sub">Автономный поиск лучших сетапов</div></div></div>
-    <div class="srcnote">Лучшие сетапы по правилам (скоринг ≥70, скептик не против, риск-гейт PASS). Это наблюдения, не рекомендации. Не финансовый совет.</div>
-    <div class="chips" id="bt-chips">
-      <span class="chip on" data-f="all">Все</span><span class="chip" data-f="long">Лонг</span><span class="chip" data-f="short">Шорт</span>
-      <span style="margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted)">мин. скоринг
-        <input id="bt-min" type="range" min="70" max="95" step="5" value="70" style="accent-color:var(--gold)"><span id="bt-minv" class="gold" style="font-weight:700">70</span></span>
-    </div>
-    <div class="card"><div id="bt-upd" class="muted" style="font-size:11.5px;margin-bottom:10px"></div><div id="bt-list"><div class="muted">Загрузка…</div></div></div>
-  </section>
-
-  <!-- 2. СКАНЕР -->
-  <section class="screen" id="s-scanner" data-title="Сканер">
-    <div class="shead"><div class="ic">🔍</div><div><h1>Сканер рынка</h1><div class="sub">Поиск наблюдений и паттернов</div></div></div>
-    <div class="srcnote">Топ-30 USDT-пар Binance по объёму 24ч, скоринг паттернов по правилам (тренд/объём/RSI/уровни/структура). Не рекомендация.</div>
+    <div class="srcnote">Вся вселенная USDT-пар Binance, отсортированы по силе сетапа (тренд/объём/RSI/уровни/структура по правилам). Цена и 24ч — вживую по WebSocket; RSI — по последнему проходу сканера. Скоринг — качество сетапа, НЕ вероятность. Это наблюдения, не рекомендации. Не финансовый совет.</div>
     <div class="chips" id="sc-chips">
-      <span class="chip on" data-f="all">Все</span><span class="chip" data-f="rsi">RSI</span>
-      <span class="chip" data-f="pattern">Паттерны</span><span class="chip" data-f="breakout">Пробои</span><span class="chip" data-f="volume">Объём</span></div>
-    <div class="card"><div id="sc-upd" class="muted" style="font-size:11.5px;margin-bottom:10px"></div><div id="sc-list"><div class="muted">Загрузка…</div></div></div>
+      <span class="chip on" data-f="all">Все</span>
+      <span class="chip" data-f="long">Лонг</span>
+      <span class="chip" data-f="short">Шорт</span>
+      <span class="chip" data-f="pattern">Паттерны</span>
+      <span class="chip" data-f="breakout">Пробои</span>
+      <span class="chip" data-f="rsi">RSI&lt;30</span>
+      <span class="chip" data-f="volume">Объём ×1.5+</span>
+    </div>
+    <div class="card" style="padding:6px 6px 2px"><div class="scanwrap"><div id="sc-list"><div class="muted" style="padding:20px">Загрузка…</div></div></div></div>
   </section>
 
-  <!-- 3. ДЕТАЛИ ПАТТЕРНА -->
-  <section class="screen" id="s-pattern" data-title="Паттерн">
-    <div class="shead"><div class="ic">📈</div><div><h1 id="pt-title">Паттерн</h1><div class="sub" id="pt-sub">Разбор сетапа</div></div></div>
-    <div class="g2">
-      <div class="card"><div class="chart" id="pt-chart"></div>
-        <div class="lvls" id="pt-lvls"></div></div>
-      <div>
-        <div class="card glow"><div class="gaugewrap"><div id="pt-gauge"></div>
-          <div class="rows" style="flex:1">
-            <div class="r"><span class="muted">Сила сетапа</span><span class="v gold" id="pt-score">—</span></div>
-            <div class="r"><span class="muted">Сторона</span><span class="v" id="pt-side">—</span></div>
-            <div class="r"><span class="muted">Структура</span><span class="v" id="pt-struct">—</span></div>
-          </div></div>
-          <div class="hint">Качество сетапа по правилам, НЕ вероятность успеха.</div></div>
-        <div class="card"><div class="h2">Факторы</div><div id="pt-factors"></div></div>
-        <div class="acts"><button class="snap" onclick="go('s-ta')">📊 Аналитика</button><button class="snap" onclick="go('s-exit')">🚪 План выхода</button></div>
+  <!-- ===== СЕТАП (конвейер ①–⑧) ===== -->
+  <section class="screen" id="s-setup" data-title="Сетап">
+    <div class="setuphd">
+      <h1 id="su-title">—</h1>
+      <span class="badge" id="su-side">—</span>
+      <span class="sv" id="su-score">—</span>
+      <span class="badge pat" id="su-pat" style="display:none"></span>
+    </div>
+    <div class="srcnote" id="su-sub">Один сетап, шаги по порядку. Каждый шаг — наблюдение с вердиктом, не команда.</div>
+    <div class="flowbar" id="su-flow"></div>
+
+    <div class="card step glow" id="step-chart">
+      <div class="sh"><span class="num">①</span><h3>График · паттерн</h3><span class="verdict info" id="v-chart">—</span></div>
+      <div class="tfs" id="su-tfs"><div class="tf" data-tf="15m">15m</div><div class="tf on" data-tf="1h">1H</div><div class="tf" data-tf="4h">4H</div><div class="tf" data-tf="1d">1D</div></div>
+      <div id="setup-chart"></div>
+      <div class="legend">
+        <span><i style="border-color:var(--gold)"></i>вход</span>
+        <span><i style="border-color:var(--red)"></i>стоп</span>
+        <span><i style="border-color:var(--green)"></i>тейк 1 / 2</span>
+        <span><i style="border-color:var(--blue)"></i>поддержка / сопротивление</span>
+      </div>
+      <div class="lvls" id="su-lvls"></div>
+    </div>
+
+    <div class="card step" id="step-news">
+      <div class="sh"><span class="num">②</span><h3>Новости по паре</h3><span class="verdict info" id="v-news">—</span></div>
+      <div id="su-news"><div class="muted">Загрузка…</div></div>
+    </div>
+
+    <div class="card step" id="step-entry">
+      <div class="sh"><span class="num">③</span><h3>Вход · условия и скоринг</h3><span class="verdict info" id="v-entry">—</span></div>
+      <div class="g2">
+        <div style="text-align:center"><div class="ringc" id="en-ring" style="margin:4px auto"></div><div class="muted" id="en-sum" style="font-size:12.5px">—</div></div>
+        <div id="en-factors"><div class="muted">Загрузка…</div></div>
       </div>
     </div>
-  </section>
 
-  <!-- 4. АНАЛИТИКА (ТА) -->
-  <section class="screen" id="s-ta" data-title="Аналитика">
-    <div class="shead"><div class="ic">📊</div><div><h1>Аналитика (ТА)</h1><div class="sub" id="ta-sym">—</div></div></div>
-    <div class="tfs" id="ta-tfs"><div class="tf" data-tf="15m">15m</div><div class="tf on" data-tf="1h">1H</div><div class="tf" data-tf="4h">4H</div><div class="tf" data-tf="1d">1D</div></div>
-    <div class="g2">
-      <div class="card"><div class="chart" id="ta-chart"></div></div>
-      <div>
-        <div class="card"><div class="h2">Индикаторы</div><div class="rows" id="ta-ind"><div class="muted">Загрузка…</div></div></div>
-        <div class="card"><div class="h2">Уровни (S/R)</div><div class="rows" id="ta-sr"></div></div>
-      </div>
+    <div class="card step" id="step-exit">
+      <div class="sh"><span class="num">④</span><h3>Выход · стоп и тейки</h3><span class="verdict info" id="v-exit">—</span></div>
+      <div class="lvls" id="ex-lvls"><div class="muted">Загрузка…</div></div>
+      <div class="hint">Стоп и тейки — арифметика от ATR(14) и ближайших уровней. План, не гарантия: в быстром рынке стоп может исполниться хуже.</div>
+    </div>
+
+    <div class="card step" id="step-tm">
+      <div class="sh"><span class="num">⑤</span><h3>Машина времени · 10 000 симуляций</h3><span class="verdict info" id="v-tm">—</span></div>
+      <div id="su-tm"><div class="muted">Монте-Карло считается (до ~10 c)…</div></div>
+    </div>
+
+    <div class="card step" id="step-budget">
+      <div class="sh"><span class="num">⑥</span><h3>Бюджет · размер позиции</h3><span class="verdict info" id="v-budget">—</span></div>
+      <div id="su-budget"><div class="muted">Загрузка…</div></div>
+    </div>
+
+    <div class="card step" id="step-risk">
+      <div class="sh"><span class="num">⑦</span><h3>Риск-гейт</h3><span class="verdict info" id="v-risk">—</span></div>
+      <div id="su-risk"><div class="muted">Загрузка…</div></div>
+    </div>
+
+    <div class="card step" id="step-ticket">
+      <div class="sh"><span class="num">⑧</span><h3>Билет · бумажная сделка</h3><span class="verdict info" id="v-ticket">—</span></div>
+      <div id="su-ticket"><div class="muted">Загрузка…</div></div>
     </div>
   </section>
 
-  <!-- 5. ЖУРНАЛ -->
-  <section class="screen" id="s-journal" data-title="Журнал">
-    <div class="shead"><div class="ic">📒</div><div><h1>Журнал сделок</h1><div class="sub">Учёт, статистика и анализ</div></div></div>
-    <div class="narrow">
-      <div class="card"><div class="h2">Статистика</div><div class="tiles" id="jr-tiles"><div class="muted">Загрузка…</div></div></div>
-      <div class="card"><div class="h2">Последние сделки</div><div id="jr-list"><div class="muted">Загрузка…</div></div></div>
+  <!-- ===== ПОРТФЕЛЬ (paper + журнал) ===== -->
+  <section class="screen" id="s-portfolio" data-title="Портфель">
+    <div class="tabs" id="pf-tabs"><div class="tb on" data-t="paper">Paper-счёт</div><div class="tb" data-t="journal">Журнал</div></div>
+    <div id="pf-paper">
+      <div class="card guest" id="pf-guest" style="display:none"></div>
+      <div class="card"><div class="h2">Бумажный счёт</div><div class="rows" id="pp-head"><div class="muted">Загрузка…</div></div>
+        <div class="hint">Виртуальный счёт для обучения. Билет на странице сетапа (шаг ⑧) открывает paper-сделку только после подтверждения. Закрытие — командой <b>/paperclose ID</b> в боте. Live — только через broker с его правилами.</div></div>
+      <div class="card"><div class="h2">Открытые позиции</div><div id="pp-pos"><div class="muted">—</div></div></div>
+    </div>
+    <div id="pf-journal" style="display:none">
+      <div class="card"><div class="h2">Статистика журнала</div><div class="tiles c3" id="jr-tiles"><div class="muted">Загрузка…</div></div></div>
+      <div class="card"><div class="h2">Как вести журнал</div><div class="hint">Запись и закрытие сделок — командами в боте: <b>/trade</b>, <b>/close ID цена</b>. Статистика считается по закрытым сделкам.</div></div>
     </div>
   </section>
 
-  <!-- 6. TIME MACHINE -->
-  <section class="screen" id="s-timemachine" data-title="Time Machine">
-    <div class="shead"><div class="ic">🕰</div><div><h1>Time Machine</h1><div class="sub">Анализ прошлых ситуаций</div></div></div>
-    <div class="narrow"><div class="card"><div class="chart sm" id="tm-chart"></div>
-      <div class="hint">Исторический replay, не предсказание. Полный прогон уровней — команда <b>/backtest</b> в боте (win rate, средний R, expectancy, просадка).</div></div></div>
-  </section>
-
-  <!-- 7. ENTRY TIMER -->
-  <section class="screen" id="s-entry" data-title="Вход">
-    <div class="shead"><div class="ic">⏱</div><div><h1>Entry Timer</h1><div class="sub" id="en-sym">Оценка условий входа</div></div></div>
-    <div class="g2">
-      <div class="card glow" style="text-align:center"><div class="ringc" id="en-ring" style="margin:6px auto 12px"></div>
-        <div class="muted" id="en-summary">Загрузка…</div></div>
-      <div class="card"><div class="h2">Условия входа</div><div id="en-cond"></div></div>
-    </div>
-  </section>
-
-  <!-- 8. EXIT PLANNER -->
-  <section class="screen" id="s-exit" data-title="Выход">
-    <div class="shead"><div class="ic">🚪</div><div><h1>Exit Planner</h1><div class="sub" id="ex-sym">План выхода</div></div></div>
-    <div class="narrow">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
-        <span class="muted" style="font-size:13px">Пара</span>
-        <select id="ex-pair" class="psel"><option>BTCUSDT</option></select></div>
-      <div class="tabs" id="ex-tabs"><div class="tb" data-mult="2.0">Консервативная</div><div class="tb on" data-mult="1.5">Базовая</div><div class="tb" data-mult="1.0">Агрессивная</div></div>
-      <div class="card"><div class="rows" id="ex-rows"><div class="muted">Загрузка…</div></div>
-        <div class="hint" id="ex-hint">Арифметика от ATR и уровней, не рекомендация.</div></div>
-    </div>
-  </section>
-
-  <!-- 9. BUDGET -->
-  <section class="screen" id="s-budget" data-title="Бюджет">
-    <div class="shead"><div class="ic">💼</div><div><h1>Budget</h1><div class="sub">Размер позиции по риску</div></div></div>
-    <div class="g2">
-      <div class="card"><div class="h2">Параметры</div><div class="rows" id="bd-in"><div class="muted">Загрузка…</div></div></div>
-      <div class="card glow"><div class="h2">Рекомендуемый размер</div>
-        <div style="font-size:36px;font-weight:900;text-align:center;margin:6px 0" class="gold" id="bd-size">—</div>
-        <div class="rows" id="bd-out"></div><div class="hint">Калькулятор по риску, не рекомендация.</div></div>
-    </div>
-  </section>
-
-  <!-- 10. RISK GATE -->
-  <section class="screen" id="s-risk" data-title="Риск">
-    <div class="shead"><div class="ic">🛡</div><div><h1>Risk Gate</h1><div class="sub" id="rk-sym">Проверка сделки на риски</div></div></div>
-    <div class="narrow" id="rk-body"><div class="muted">Загрузка…</div></div>
-  </section>
-
-  <!-- 11. PAPER EXECUTOR -->
-  <section class="screen" id="s-paper" data-title="Портфель">
-    <div class="shead"><div class="ic">🧪</div><div><h1>Paper Executor</h1><div class="sub">Виртуальная торговля (демо)</div></div></div>
-    <div class="g2">
-      <div class="card"><div class="rows" id="pp-head"><div class="muted">Загрузка…</div></div>
-        <div class="acts"><button class="snap" onclick="loadPaper()">📸 Сделать снимок</button><button class="buy" onclick="paperBuyHint('buy')">КУПИТЬ</button><button class="sell" onclick="paperBuyHint('sell')">ПРОДАТЬ</button></div>
-        <div class="hint" id="pp-note">Виртуальный счёт для обучения. Сделки — командами в боте: <b>/paperbuy ПАРА КОЛ-ВО</b>, <b>/paperclose ID</b>.</div></div>
-      <div class="card"><div class="h2">Статистика</div><div class="tiles" id="pp-stats"></div>
-        <div class="h2" style="margin:16px 0 12px">Открытые позиции</div><div id="pp-pos"></div></div>
-    </div>
-  </section>
-
-  <!-- 12. WHALE TRACKER -->
-  <section class="screen" id="s-whale" data-title="Киты">
-    <div class="shead"><div class="ic">🐋</div><div><h1>Whale Tracker</h1><div class="sub" id="wh-sym">Крупные сделки спота</div></div></div>
-    <div class="narrow"><div class="card"><div id="wh-body"><div class="muted">Загрузка…</div></div></div></div>
-  </section>
-
-  <!-- 13. SKEPTIC -->
-  <section class="screen" id="s-skeptic" data-title="Skeptic">
-    <div class="shead"><div class="ic">🧠</div><div><h1>Skeptic</h1><div class="sub" id="sk-sym">Проверка идеи и риски</div></div></div>
-    <div class="g2"><div class="card"><div class="h2 up">За идею</div><div id="sk-for"></div></div>
-      <div class="card"><div class="h2 down">Против</div><div id="sk-against"></div></div></div>
-    <div class="card glow"><div class="h2">Итог</div><div id="sk-sum" class="muted">Загрузка…</div></div>
-  </section>
-
-  <!-- 14. COORDINATOR -->
-  <section class="screen" id="s-coordinator" data-title="Координатор">
-    <div class="shead"><div class="ic">🧭</div><div><h1>Coordinator</h1><div class="sub">Оркестрация AI-агентов</div></div></div>
-    <div class="g2">
-      <div class="card" id="co-body"><div class="muted">Загрузка…</div></div>
-      <div class="card"><div class="h2">Агенты (нажми — откроется)</div>
-        <div class="agentrow" onclick="go('s-scanner')"><span>Сканер (поиск наблюдений)</span><span class="sw" data-key="ag-scanner" onclick="tgl(event,this)"></span></div>
-        <div class="agentrow" onclick="go('s-ta')"><span>Аналитик (ТА и уровни)</span><span class="sw" data-key="ag-ta" onclick="tgl(event,this)"></span></div>
-        <div class="agentrow" onclick="go('s-risk')"><span>Риск-менеджер</span><span class="sw" data-key="ag-risk" onclick="tgl(event,this)"></span></div>
-        <div class="agentrow" onclick="go('s-skeptic')"><span>Skeptic (проверка идеи)</span><span class="sw" data-key="ag-skeptic" onclick="tgl(event,this)"></span></div>
-        <div class="agentrow" onclick="go('s-whale')"><span>Новости / Киты (крупные сделки)</span><span class="sw" data-key="ag-news" onclick="tgl(event,this)"></span></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- 15. ALERTS -->
+  <!-- ===== АЛЕРТЫ ===== -->
   <section class="screen" id="s-alerts" data-title="Алерты">
-    <div class="shead"><div class="ic">🔔</div><div><h1>Алерты</h1><div class="sub">События по вашим настройкам</div></div></div>
     <div class="g2">
       <div class="card"><div class="h2">Мои подписки</div><div id="al-list"><div class="muted">Загрузка…</div></div></div>
       <div class="card"><div class="h2">Типы событий</div>
@@ -404,18 +337,15 @@
   </section>
 
     </div><!-- /viewport -->
-    <div class="footbar">⚠️ Не финансовый совет. Наблюдения, не рекомендации.</div>
+    <div class="footbar">⚠️ Не финансовый совет. Наблюдения, не рекомендации. Скоринг — качество сетапа, не вероятность. Данные — Binance (публичные).</div>
   </div><!-- /main -->
 </div><!-- /shell -->
 
-<!-- mobile bottom nav -->
 <div class="mdisc only-m">⚠️ Не финансовый совет. Наблюдения, не рекомендации.</div>
 <nav class="mobnav">
-  <div class="tab on" data-s="s-overview"><div class="ti">🏠</div><span>Обзор</span></div>
-  <div class="tab" data-s="s-scanner"><div class="ti">🔍</div><span>Сканер</span></div>
-  <div class="tab" data-s="s-journal"><div class="ti">📒</div><span>Журнал</span></div>
-  <div class="tab" data-s="s-paper"><div class="ti">🧪</div><span>Портфель</span></div>
-  <div class="tab" data-s="s-coordinator"><div class="ti">🧭</div><span>Агенты</span></div>
+  <div class="tab on" data-s="s-scanner"><div class="ti">🔍</div><span>Сканер</span></div>
+  <div class="tab" data-s="s-portfolio"><div class="ti">🧪</div><span>Портфель</span></div>
+  <div class="tab" data-s="s-alerts"><div class="ti">🔔</div><span>Алерты</span></div>
 </nav>
 
 <script>
@@ -427,452 +357,431 @@ let UID = TG_UID || savedUid();
 let GUEST = !UID;
 let CFG = {bot_username:'', version:''};
 
-const STATE={symbol:'BTCUSDT',side:'long',entry:null,tf:'1h',finding:null,findings:[],exitMult:'1.5',scanFilter:'all',scanSort:{key:'score',dir:-1},bestIdeas:[],bestFilter:'all',bestMin:70};
-const fmt=n=>(n==null?'—':(Math.abs(n)>=1000?Number(n).toLocaleString('ru-RU',{maximumFractionDigits:2}):(Math.abs(n)>=1?Number(n).toFixed(2):Number(n).toPrecision(4))));
-const pct=n=>(n==null?'н/д':(n>=0?'+':'')+Number(n).toFixed(2)+'%');
+const STATE={symbol:null,side:'long',finding:null,findings:[],tf:'1h',
+  entry:null,stop:null,take1:null,take2:null,rr1:null,qty:null,risk:null,balance:10000,
+  scanFilter:'all',scanSort:{key:'score',dir:-1}};
+
+const fmt=n=>(n==null||isNaN(n)?'—':(Math.abs(n)>=1000?Number(n).toLocaleString('ru-RU',{maximumFractionDigits:2}):(Math.abs(n)>=1?Number(n).toFixed(2):Number(n).toPrecision(4))));
+const pct=n=>(n==null||isNaN(n)?'н/д':(n>=0?'+':'')+Number(n).toFixed(2)+'%');
 const sideRu=s=>s==='long'?'лонг':'шорт';
-function setConn(ok){ const d=document.getElementById('conn'),t=document.getElementById('conn-txt'); if(!d)return; d.className='conn '+(ok?'ok':'bad'); if(t)t.textContent=ok?'онлайн':'нет данных'; }
-async function J(u){ try{const r=await (await fetch(u,{cache:'no-store'})).json(); setConn(true); return r;}catch(e){ setConn(false); return {ok:false,error:String(e)};} }
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+let WS=null, WS_OK='', WS_LAST={}, WS_DIRTY=false, KWS=null;
+function setConn(mode){ const d=document.getElementById('conn'),t=document.getElementById('conn-txt'); if(!d)return;
+  d.className='conn '+mode; if(t)t.textContent=mode==='live'?'live':mode==='ok'?'онлайн':'нет данных'; }
+async function J(u,opt){ try{const r=await (await fetch(u,Object.assign({cache:'no-store'},opt||{}))).json(); if(WS_OK!=='live')setConn('ok'); return r;}catch(e){ setConn('bad'); return {ok:false,error:String(e)};} }
 function agoMin(iso){ if(!iso)return''; const m=(Date.now()-new Date(iso))/60000; return m<1?'обновлено только что':'обновлено '+Math.floor(m)+' мин назад'; }
-function setAgo(id,iso){ const el=document.getElementById(id); if(!el)return; if(iso){el.dataset.ts=iso;el.textContent=agoMin(iso);} else {el.textContent='';} }
+
+/* clock */
+setInterval(()=>{const el=document.getElementById('hdr-clock');if(el)el.textContent=new Date().toLocaleTimeString('ru-RU')+' · UTC '+new Date().toUTCString().slice(17,22);},1000);
+
 function setMiPill(idx){ const p=document.getElementById('mi-pill'); if(!p)return;
-  if(idx&&idx.value!=null){ p.innerHTML='Market Index <b>'+idx.value+'</b> · '+idx.label; p.className='pill '+(idx.value<25?'r':idx.value<55?'g2':'g'); }
+  if(idx&&idx.value!=null){ p.innerHTML='Market Index <b>'+idx.value+'</b> · '+esc(idx.label); p.className='pill '+(idx.value<25?'r':idx.value<55?'g2':'g'); }
   else { p.textContent='Market Index —'; p.className='pill g2'; } }
 
-function gauge(val,size=120){
+function gauge(val,size=108){
   val=Math.max(0,Math.min(100,val||0)); const r=size*.4,c=2*Math.PI*r,off=c*(1-val/100),cx=size/2;
   const col=val<25?'#f6465d':val<55?'#e8b33d':'#0ecb81';
   return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-    <circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="#222a38" stroke-width="9"/>
-    <circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="${col}" stroke-width="9" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${off}" transform="rotate(-90 ${cx} ${cx})"/>
+    <circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="#222a38" stroke-width="8"/>
+    <circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="${col}" stroke-width="8" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${off}" transform="rotate(-90 ${cx} ${cx})"/>
     <text x="${cx}" y="${cx-1}" text-anchor="middle" fill="#eef1f6" font-size="${size*.26}" font-weight="800">${Math.round(val)}</text>
-    <text x="${cx}" y="${cx+17}" text-anchor="middle" fill="#8a93a6" font-size="11">/100</text></svg>`;
+    <text x="${cx}" y="${cx+16}" text-anchor="middle" fill="#8a93a6" font-size="10">/100</text></svg>`;
 }
 function ring(val,label){
-  const size=150,r=size*.4,c=2*Math.PI*r,off=c*(1-Math.max(0,Math.min(100,val))/100),cx=size/2;
+  val=Math.max(0,Math.min(100,val||0)); const size=132,r=size*.4,c=2*Math.PI*r,off=c*(1-val/100),cx=size/2;
+  const col=val>=60?'#0ecb81':val>=40?'#e8b33d':'#f6465d';
   return `<div style="width:${size}px;height:${size}px;position:relative">
     <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-      <circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="#222a38" stroke-width="10"/>
-      <circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="#0ecb81" stroke-width="10" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${off}" transform="rotate(-90 ${cx} ${cx})"/></svg>
-    <div class="rt" style="left:0;right:0;top:50%;transform:translateY(-50%)"><div class="big">${Math.round(val)}</div><div class="lb">${label}</div></div></div>`;
-}
-function spark(data,w=72,h=34){
-  if(!data||data.length<2)return'';
-  const mn=Math.min(...data),mx=Math.max(...data),rg=(mx-mn)||1;
-  const p=data.map((v,i)=>[(i/(data.length-1))*w,h-((v-mn)/rg)*h]);
-  const col=data[data.length-1]>=data[0]?'#0ecb81':'#f6465d';
-  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline fill="none" stroke="${col}" stroke-width="1.6" points="${p.map(q=>q[0].toFixed(1)+','+q[1].toFixed(1)).join(' ')}"/></svg>`;
-}
-function candles(data,levels,W=640,H=280){
-  if(!data||!data.length)return '<div class="muted" style="padding:40px;text-align:center">нет данных</div>';
-  const lows=data.map(c=>c[3]),highs=data.map(c=>c[2]);
-  let mn=Math.min(...lows),mx=Math.max(...highs);
-  (levels||[]).forEach(l=>{if(l.v!=null){mn=Math.min(mn,l.v);mx=Math.max(mx,l.v);}});
-  const rg=(mx-mn)||1,n=data.length,cw=W/n,bw=Math.max(1.6,cw*.62),y=v=>H-((v-mn)/rg)*H;
-  let s=`<svg width="100%" height="100%" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">`;
-  data.forEach((c,i)=>{const x=i*cw+cw/2,o=c[1],hi=c[2],lo=c[3],cl=c[4],col=cl>=o?'#0ecb81':'#f6465d';
-    s+=`<line x1="${x}" y1="${y(hi)}" x2="${x}" y2="${y(lo)}" stroke="${col}" stroke-width="1"/>`;
-    const yo=y(o),yc=y(cl);s+=`<rect x="${x-bw/2}" y="${Math.min(yo,yc)}" width="${bw}" height="${Math.max(1,Math.abs(yc-yo))}" fill="${col}"/>`;});
-  (levels||[]).forEach(l=>{if(l.v!=null){const yy=y(l.v);s+=`<line x1="0" y1="${yy}" x2="${W}" y2="${yy}" stroke="${l.c}" stroke-width="1" stroke-dasharray="5 4" opacity=".9"/>`;}});
-  return s+'</svg>';
+      <circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="#222a38" stroke-width="9"/>
+      <circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="${col}" stroke-width="9" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${off}" transform="rotate(-90 ${cx} ${cx})"/></svg>
+    <div class="rt" style="left:0;right:0;top:50%;transform:translateY(-50%)"><div class="big">${Math.round(val)}</div><div class="lb">${esc(label)}</div></div></div>`;
 }
 
-/* routing — always reload (fresh per-pair data) */
-const TITLES={'s-pattern':'Паттерн','s-skeptic':'Skeptic','s-timemachine':'Time Machine'};
+/* ===== routing ===== */
 function go(id){
   document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active',s.id===id));
   document.querySelectorAll('.nav-item,.tab').forEach(t=>t.classList.toggle('on',t.dataset.s===id));
   const sec=document.getElementById(id);
   document.getElementById('crumb').textContent=sec?(sec.dataset.title||''):'';
-  document.getElementById('back').classList.toggle('show',['s-pattern','s-skeptic','s-timemachine'].includes(id));
+  document.getElementById('back').classList.toggle('show', id==='s-setup');
   window.scrollTo(0,0);
-  const fn=LOADERS[id]; if(fn) try{fn();}catch(e){}
+  if(id!=='s-setup') closeKlineWS();
+  const fn={'s-scanner':loadScan,'s-portfolio':loadPortfolio,'s-alerts':loadAlerts}[id];
+  if(fn) try{fn();}catch(e){}
 }
 document.querySelectorAll('.nav-item,.tab').forEach(t=>t.onclick=()=>go(t.dataset.s));
-document.getElementById('back').onclick=()=>go(STATE.finding?'s-scanner':'s-overview');
+document.getElementById('back').onclick=()=>go('s-scanner');
 
-const LOADERS={
-  's-overview':loadOverview,'s-best':loadBest,'s-scanner':loadScan,'s-pattern':()=>renderPattern(STATE.finding),
-  's-ta':loadTA,'s-journal':loadJournal,'s-timemachine':loadTM,'s-entry':loadEntry,'s-exit':loadExit,
-  's-budget':loadBudget,'s-risk':loadRisk,'s-paper':loadPaper,'s-whale':loadWhale,'s-skeptic':loadSkeptic,
-  's-coordinator':loadCoordinator,'s-alerts':loadAlerts
-};
-
-/* toggles — localStorage */
 function tgl(ev,el){ ev.stopPropagation(); const on=el.classList.toggle('off')===false;
   try{localStorage.setItem('cp_'+el.dataset.key, on?'1':'0');}catch(e){} }
 function restoreToggles(){ document.querySelectorAll('.sw[data-key]').forEach(el=>{
   let v='1'; try{const s=localStorage.getItem('cp_'+el.dataset.key); if(s!==null)v=s;}catch(e){}
   el.classList.toggle('off', v==='0'); }); }
 
-/* guest / Telegram login */
-function onTGAuth(user){ if(user&&user.id){ try{localStorage.setItem('cp_uid',user.id);}catch(e){} UID=user.id; GUEST=false; loadOverview(); } }
-function renderGuest(){
-  const box=document.getElementById('ov-guest'); if(!box)return;
-  if(!GUEST){ box.style.display='none'; return; }
-  box.style.display='block';
-  let widget = CFG.bot_username ? '<div id="tg-login" style="margin-top:10px"></div>'
-    : '<div class="hint">Вход через Telegram настраивается. Открывайте приложение из бота кнопкой «Открыть».</div>';
-  box.innerHTML='<div class="h2">Гость</div><div style="font-size:14px">Журнал и paper недоступны без входа через Telegram.</div>'+widget;
-  if(CFG.bot_username){
-    const sc=document.createElement('script'); sc.async=true; sc.src='https://telegram.org/js/telegram-widget.js?22';
-    sc.setAttribute('data-telegram-login',CFG.bot_username); sc.setAttribute('data-size','large');
-    sc.setAttribute('data-userpic','false'); sc.setAttribute('data-onauth','onTGAuth(user)'); sc.setAttribute('data-request-access','write');
-    document.getElementById('tg-login').appendChild(sc);
+/* ===== SCANNER (whole universe, live) ===== */
+function startTickerWS(){
+  if(WS) return;
+  try{
+    WS=new WebSocket('wss://stream.binance.com:9443/ws/!miniTicker@arr');
+    WS.onopen=()=>{WS_OK='live';setConn('live');};
+    WS.onmessage=ev=>{ let arr; try{arr=JSON.parse(ev.data);}catch(e){return;}
+      if(!Array.isArray(arr))return;
+      for(const t of arr){ const s=t.s; if(!s||!s.endsWith('USDT'))continue;
+        const c=parseFloat(t.c),o=parseFloat(t.o); WS_LAST[s]={price:c,change:o>0?((c-o)/o*100):null}; }
+      WS_DIRTY=true;
+    };
+    WS.onclose=()=>{WS=null;WS_OK='';if(document.getElementById('s-scanner').classList.contains('active'))setConn('ok');
+      setTimeout(()=>{if(document.getElementById('s-scanner').classList.contains('active'))startTickerWS();},4000);};
+    WS.onerror=()=>{try{WS.close();}catch(e){}};
+  }catch(e){ WS=null; }
+}
+setInterval(()=>{ if(WS_DIRTY){ WS_DIRTY=false; patchLiveCells(); } },1500);
+function patchLiveCells(){
+  if(!document.getElementById('s-scanner').classList.contains('active'))return;
+  for(const s in WS_LAST){ const pe=document.getElementById('px-'+s); const d=WS_LAST[s];
+    const f=STATE.findings.find(x=>x.symbol===s); if(f){f.price=d.price; if(d.change!=null)f.change_24h=d.change;}
+    if(!pe)continue; pe.textContent='$'+fmt(d.price);
+    const ce=document.getElementById('ch-'+s); if(ce&&d.change!=null){ ce.textContent=pct(d.change); ce.className='num '+((d.change>=0)?'up':'down'); }
   }
 }
-function guestCard(){ return '<div class="muted">Гость: журнал и paper недоступны без входа через Telegram.</div>'; }
-
-/* ===== loaders ===== */
-async function loadOverview(){
-  renderGuest();
-  const el=document.getElementById('ov-coins');
-  const d=await J('/api/market'); let coins=d.ok?d.coins.slice():[];
-  // ADA отдельно (бэкенд не трогаем): цена+24ч из /api/ta, спарклайн из /api/klines
-  const [ta,kl]=await Promise.all([J('/api/ta?symbol=ADAUSDT&tf=1h'),J('/api/klines?symbol=ADAUSDT&tf=1h&limit=30')]);
-  if(ta.ok&&ta.ta){ coins.push({symbol:'ADAUSDT',price:ta.ta.price,change24h:ta.ta.change_24h,spark:(kl.ok&&kl.candles)?kl.candles.map(c=>c[4]):[]}); }
-  el.innerHTML=coins.length?coins.map(c=>`<div class="coin"><div class="s">${c.symbol.replace('USDT','')}/USDT</div>
-    <div class="p">$${fmt(c.price)}</div><div class="c ${(c.change24h||0)>=0?'up':'down'}">${pct(c.change24h)}</div><div class="spk">${spark(c.spark)}</div></div>`).join(''):'<div class="muted">Рынок недоступен.</div>';
-  const x=await J('/api/market_index'); const hint=document.getElementById('ov-hint'); const base='Широта + импульс + объём. Режим рынка, не прогноз.';
-  if(x.warming){ document.getElementById('ov-gauge').innerHTML=gauge(0); document.getElementById('ov-idx').textContent='⏳ считается…'; hint.textContent=base; setMiPill(null); }
-  else if(x.ok&&x.index){ const i=x.index; document.getElementById('ov-gauge').innerHTML=gauge(i.value);
-    document.getElementById('ov-idx').innerHTML=`${i.value}/100 <span class="tag gold">${i.label}</span>`;
-    document.getElementById('ov-breadth').textContent=i.components.breadth; document.getElementById('ov-mom').textContent=i.components.momentum; document.getElementById('ov-vol').textContent=i.components.volume;
-    hint.textContent=base+(x.updated_at?' · '+agoMin(x.updated_at):''); setMiPill(i); }
-  const b=await J('/api/brief'); const obs=document.getElementById('ov-obs');
-  if(b.warming){ obs.innerHTML='<li class="muted">⏳ сводка считается…</li>'; }
-  else if(b.ok&&b.brief){ const br=b.brief,ideas=br.ideas||[]; const it=[['Рынок: '+br.market_summary,'s-scanner'],['Идей после риск-гейта (без фильтра скептика): '+ideas.length,'s-coordinator'],['Отсеяно по риску: '+((br.filtered_out||[]).length),'s-coordinator'],['Строгие топ-идеи (скептик 5/5 + порог) — в разделе «Топ-идеи»','s-best'],['Новостей: '+((br.news||[]).length),'s-coordinator']];
-    obs.innerHTML=it.map((t,i)=>`<li onclick="go('${t[1]}')"><span class="dotc" style="background:${['#0ecb81','#0ecb81','#e8b33d','#e8b33d','#4a9eff'][i]}"></span>${t[0]}</li>`).join('');
-  } else obs.innerHTML='<li class="muted">Сводка недоступна.</li>';
-  // держим findings сканера для детальных карточек Топ-идей
-  const sc=await J('/api/scan'); if(sc.ok&&sc.findings) STATE.findings=sc.findings;
-  // widget: Топ-3 идеи из /api/best
-  const bw=document.getElementById('ov-best'); const bb=await J('/api/best');
-  if(bb.warming){ bw.innerHTML='<div class="muted">⏳ ищем сетапы…</div>'; }
-  else if(bb.ok&&bb.ideas&&bb.ideas.length){ STATE.bestIdeas=bb.ideas;
-    bw.innerHTML=bb.ideas.slice(0,3).map((d,i)=>`<div class="chk" style="cursor:pointer" onclick="event.stopPropagation();selectBest(${i})"><span>${d.pair} · ${sideRu(d.side)}</span><span class="sv">${d.score}/100</span></div>`).join('');
-  } else bw.innerHTML='<div class="muted">Сильных сетапов по правилам сейчас нет.</div>';
-  const alEl=document.getElementById('ov-alert');
-  if(GUEST){ alEl.innerHTML='<div class="muted">войдите, чтобы видеть</div>'; }
-  else { const a=await J('/api/alerts/'+UID); const list=(a.ok&&a.alerts)?a.alerts:[];
-    alEl.innerHTML=list.length?`<div class="chk"><span>${list[0].symbol} · ${list[0].condition_type}</span><span class="gold">${fmt(list[0].threshold)}</span></div>`:'<div class="muted">активных нет</div>'; }
-  const ppEl=document.getElementById('ov-paper');
-  if(GUEST){ ppEl.innerHTML='<div class="muted">войдите, чтобы видеть</div>'; }
-  else { const p=await J('/api/paper/'+UID); ppEl.innerHTML=(p.ok&&p.portfolio)?`<div style="font-size:22px;font-weight:900" class="gold">${fmt(p.portfolio.balance)} USDT</div><div class="muted" style="font-size:12px">свободный баланс</div>`:'<div class="muted">нет данных</div>'; }
-}
-
-/* ===== scanner (sortable table + filters) ===== */
-function scanPred(f,filter){
-  if(filter==='all')return true;
-  if(filter==='rsi'){ const r=(f.rsi==null)?null:Number(f.rsi.toFixed(1)); return r!=null&&r<30; } // только RSI<30 (как показано)
-  if(filter==='pattern')return !!f.structure;                      // распознан паттерн (поле structure)
-  if(filter==='breakout')return !!f.breakout;                      // пробой (флаг breakout)
-  if(filter==='volume')return (f.vol_ratio||0)>=1.5;               // всплеск объёма
+function scanPred(f,flt){
+  if(flt==='all')return true;
+  if(flt==='long')return f.side==='long';
+  if(flt==='short')return f.side==='short';
+  if(flt==='pattern')return !!f.structure;
+  if(flt==='breakout')return !!f.breakout;
+  if(flt==='rsi'){ const r=(f.rsi==null)?null:Number(f.rsi.toFixed(1)); return r!=null&&r<30; }
+  if(flt==='volume')return (f.vol_ratio||0)>=1.5;
   return true;
 }
 function sortScan(key){ if(STATE.scanSort.key===key)STATE.scanSort.dir*=-1; else STATE.scanSort={key,dir:(key==='symbol'?1:-1)}; renderScanList(); }
+function patBadge(f){ if(f.structure) return '<span class="badge pat">'+esc(f.structure)+'</span>';
+  if(f.patterns&&f.patterns.length) return '<span class="badge">'+esc(f.patterns[0])+'</span>'; return '<span class="muted">—</span>'; }
 function renderScanList(){
   const el=document.getElementById('sc-list');
   let list=STATE.findings.filter(f=>scanPred(f,STATE.scanFilter));
   const {key,dir}=STATE.scanSort;
-  list.sort((a,b)=>{ let av=a[key],bv=b[key]; if(key==='symbol'){return av<bv?-dir:av>bv?dir:0;} return ((av||0)-(bv||0))*dir; });
-  list=list.slice(0,30);
-  if(!list.length){ el.innerHTML='<div class="muted">По этому фильтру наблюдений нет.</div>'; return; }
+  list.sort((a,b)=>{let av=a[key],bv=b[key]; if(key==='symbol')return av<bv?-dir:av>bv?dir:0; return ((av||0)-(bv||0))*dir;});
+  if(!list.length){ el.innerHTML='<div class="muted" style="padding:20px">По этому фильтру пар нет.</div>'; return; }
   const ar=k=>STATE.scanSort.key===k?`<span class="ar">${STATE.scanSort.dir<0?'▼':'▲'}</span>`:'';
-  let h=`<div style="overflow:auto"><table class="tbl"><thead><tr>
+  let h=`<table class="tbl"><thead><tr>
     <th onclick="sortScan('symbol')">Пара ${ar('symbol')}</th>
-    <th class="hide-m">График</th>
+    <th>Паттерн</th>
+    <th class="hide-m">Сторона</th>
+    <th class="num" onclick="sortScan('score')">Сила ${ar('score')}</th>
     <th class="num" onclick="sortScan('price')">Цена ${ar('price')}</th>
     <th class="num" onclick="sortScan('change_24h')">24ч ${ar('change_24h')}</th>
-    <th class="num" onclick="sortScan('rsi')">RSI ${ar('rsi')}</th>
-    <th class="num hide-m" onclick="sortScan('vol_ratio')">Объём ${ar('vol_ratio')}</th>
-    <th class="hide-m">Структура</th>
-    <th class="num" onclick="sortScan('score')">Сила ${ar('score')}</th></tr></thead><tbody>`;
-  h+=list.map(f=>{const idx=STATE.findings.indexOf(f);
-    const mini=(f.spark&&f.spark.length>1)?spark(f.spark,72,26):'<span class="muted">—</span>';
-    return `<tr class="row" onclick="selectFinding(${idx})">
-    <td><b>${f.symbol}</b> <span class="muted">${sideRu(f.side)}</span></td>
-    <td class="hide-m">${mini}</td>
-    <td class="num">${fmt(f.price)}</td>
-    <td class="num ${(f.change_24h||0)>=0?'up':'down'}">${pct(f.change_24h)}</td>
-    <td class="num">${f.rsi!=null?f.rsi.toFixed(1):'—'}</td>
-    <td class="num hide-m">x${(f.vol_ratio||0).toFixed(1)}</td>
-    <td class="hide-m"><span class="badge">${f.structure||(f.patterns&&f.patterns[0])||'—'}</span></td>
-    <td class="num"><span class="sv">${f.score}</span></td></tr>`;}).join('');
-  el.innerHTML=h+'</tbody></table></div>';
+    <th class="num hide-m" onclick="sortScan('rsi')">RSI ${ar('rsi')}</th>
+    <th class="num hide-m" onclick="sortScan('vol_ratio')">Объём× ${ar('vol_ratio')}</th>
+  </tr></thead><tbody>`;
+  for(const f of list){ const s=f.symbol, ch=f.change_24h;
+    h+=`<tr class="row" onclick="openSetup('${s}')">
+      <td><b>${esc(s.replace('USDT',''))}</b><span class="muted">/USDT</span></td>
+      <td>${patBadge(f)}</td>
+      <td class="hide-m"><span class="badge ${f.side==='long'?'l':'s'}">${sideRu(f.side)}</span></td>
+      <td class="num"><span class="sv">${f.score}</span></td>
+      <td class="num" id="px-${s}">$${fmt(f.price)}</td>
+      <td class="num ${(ch||0)>=0?'up':'down'}" id="ch-${s}">${pct(ch)}</td>
+      <td class="num hide-m">${f.rsi==null?'—':Number(f.rsi).toFixed(1)}</td>
+      <td class="num hide-m">${f.vol_ratio==null?'—':Number(f.vol_ratio).toFixed(2)}×</td>
+    </tr>`; }
+  el.innerHTML=h+'</tbody></table>';
+  patchLiveCells();
 }
 async function loadScan(){
-  const d=await J('/api/scan'); const el=document.getElementById('sc-list');
-  if(d.warming){ setAgo('sc-upd',null); el.innerHTML='<div class="muted">⏳ считается…</div>'; return; }
-  if(!d.ok){ el.innerHTML='<div class="muted">Сканер недоступен.</div>'; return; }
-  STATE.findings=d.findings||[]; setAgo('sc-upd',d.updated_at);
-  if(!STATE.findings.length){ el.innerHTML='<div class="muted">Ярких наблюдений нет.</div>'; return; }
-  if(!STATE.finding){ const f=STATE.findings[0]; STATE.finding=f; STATE.symbol=f.symbol; STATE.side=f.side; STATE.entry=f.price; }
-  renderScanList();
+  startTickerWS(); loadNewsStrip(); loadMarketIndex();
+  const d=await J('/api/scan');
+  const el=document.getElementById('sc-list');
+  if(d.warming){ el.innerHTML='<div class="muted" style="padding:20px">Сканирование вселенной USDT-пар… первый проход считается (до ~3 мин).</div>'; document.getElementById('sc-count').textContent='…'; return; }
+  if(d.ok&&d.findings){ STATE.findings=d.findings; document.getElementById('sc-count').textContent=d.findings.length;
+    document.getElementById('sc-upd').textContent=agoMin(d.updated_at); renderScanList(); }
+  else el.innerHTML='<div class="muted" style="padding:20px">Скан недоступен.</div>';
 }
+async function loadNewsStrip(){
+  const el=document.getElementById('news-strip'); const d=await J('/api/news?limit=10');
+  if(d.ok&&d.news&&d.news.length){ el.innerHTML=d.news.map(n=>`<a class="newschip" href="${esc(n.url)}" target="_blank" rel="noopener">${esc(n.title)}<span class="src">${esc(n.source)}</span></a>`).join(''); }
+  else el.innerHTML='<span class="muted" style="font-size:12px">Свежих новостей нет.</span>';
+}
+async function loadMarketIndex(){
+  const x=await J('/api/market_index');
+  if(x.warming){ document.getElementById('mi-gauge').innerHTML=gauge(0); document.getElementById('mi-val').textContent='⏳ считается'; setMiPill(null); return; }
+  if(x.ok&&x.index){ const i=x.index; document.getElementById('mi-gauge').innerHTML=gauge(i.value);
+    document.getElementById('mi-val').innerHTML=`${i.value}/100 <span class="tag gold">${esc(i.label)}</span>`;
+    document.getElementById('mi-breadth').textContent=i.components.breadth;
+    document.getElementById('mi-mom').textContent=i.components.momentum+' · '+i.components.volume; setMiPill(i); }
+}
+
+/* ===== SETUP FLOW ===== */
+const STEPS=[['①','График','step-chart'],['②','Новости','step-news'],['③','Вход','step-entry'],['④','Выход','step-exit'],['⑤','Машина времени','step-tm'],['⑥','Бюджет','step-budget'],['⑦','Риск-гейт','step-risk'],['⑧','Билет','step-ticket']];
+function setVerdict(id,cls,txt){ const el=document.getElementById(id); if(!el)return; el.className='verdict '+cls; el.textContent=txt; }
+function roundTo(n){ if(n==null)return n; const a=Math.abs(n); const p=a>=100?2:a>=1?4:8; return Number(Number(n).toFixed(p)); }
+
+async function openSetup(symbol){
+  const f=STATE.findings.find(x=>x.symbol===symbol); if(!f){return;}
+  STATE.finding=f; STATE.symbol=symbol; STATE.side=f.side; STATE.tf='1h'; STATE.entry=roundTo(f.price);
+  STATE.stop=null;STATE.take1=null;STATE.take2=null;STATE.qty=null;STATE.risk=null;
+  document.getElementById('su-title').textContent=symbol.replace('USDT','')+'/USDT';
+  const sd=document.getElementById('su-side'); sd.textContent=sideRu(f.side); sd.className='badge '+(f.side==='long'?'l':'s');
+  document.getElementById('su-score').textContent=f.score+'/100';
+  const pt=document.getElementById('su-pat'); if(f.structure){pt.style.display='';pt.textContent=f.structure;} else pt.style.display='none';
+  document.getElementById('su-flow').innerHTML=STEPS.map(s=>`<span class="fstep" onclick="document.getElementById('${s[2]}').scrollIntoView({behavior:'smooth'})">${s[0]} ${s[1]}</span>`).join('');
+  document.querySelectorAll('#su-tfs .tf').forEach(t=>t.classList.toggle('on',t.dataset.tf==='1h'));
+  ['su-tm','su-budget','su-risk','su-ticket'].forEach(id=>{const e=document.getElementById(id);if(e)e.innerHTML='<div class="muted">Загрузка…</div>';});
+  document.getElementById('su-tm').innerHTML='<div class="muted">Монте-Карло считается (до ~10 c)…</div>';
+  go('s-setup');
+  buildChart();
+  stepNews();
+  stepEntry();
+  await stepExit();      // locks STATE.stop/take → dependents
+  stepTimeMachine();
+  stepBudget();
+  stepRisk();
+}
+document.querySelectorAll('#su-tfs .tf').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('#su-tfs .tf').forEach(x=>x.classList.toggle('on',x===t));
+  STATE.tf=t.dataset.tf; buildChart();
+});
+
+/* --- chart via Lightweight Charts --- */
+let CHART=null, SERIES=null;
+function closeKlineWS(){ if(KWS){try{KWS.close();}catch(e){} KWS=null;} }
+function destroyChart(){ if(CHART){try{CHART.remove();}catch(e){} CHART=null;SERIES=null;} }
+async function buildChart(){
+  const el=document.getElementById('setup-chart'); closeKlineWS(); destroyChart();
+  if(!window.LightweightCharts){ el.innerHTML='<div class="muted" style="padding:40px;text-align:center">Библиотека графика не загрузилась.</div>'; setVerdict('v-chart','warn','нет графика'); return; }
+  el.innerHTML='';
+  const LC=window.LightweightCharts;
+  CHART=LC.createChart(el,{
+    width:el.clientWidth,height:el.clientHeight,
+    layout:{background:{color:'transparent'},textColor:'#8a93a6',fontFamily:'inherit'},
+    grid:{vertLines:{color:'rgba(34,42,56,.5)'},horzLines:{color:'rgba(34,42,56,.5)'}},
+    rightPriceScale:{borderColor:'#222a38'},timeScale:{borderColor:'#222a38',timeVisible:true,secondsVisible:false},
+    crosshair:{mode:LC.CrosshairMode.Normal}
+  });
+  SERIES=CHART.addCandlestickSeries({upColor:'#0ecb81',downColor:'#f6465d',borderVisible:false,wickUpColor:'#0ecb81',wickDownColor:'#f6465d'});
+  const d=await J(`/api/klines?symbol=${STATE.symbol}&tf=${STATE.tf}&limit=200`);
+  if(!(d.ok&&d.candles&&d.candles.length)){ el.innerHTML='<div class="muted" style="padding:40px;text-align:center">Нет данных графика.</div>'; setVerdict('v-chart','warn','нет данных'); return; }
+  const data=d.candles.map(c=>({time:Math.floor(c[0]/1000),open:c[1],high:c[2],low:c[3],close:c[4]}));
+  SERIES.setData(data);
+  drawLevels();
+  const f=STATE.finding, lastT=data[data.length-1].time;
+  if(f&&f.structure){ SERIES.setMarkers([{time:lastT,position:f.side==='long'?'belowBar':'aboveBar',
+    color:'#e8b33d',shape:f.side==='long'?'arrowUp':'arrowDown',text:f.structure}]); }
+  CHART.timeScale().fitContent();
+  setVerdict('v-chart','info', f&&f.structure?('паттерн: '+f.structure):'паттерн не распознан');
+  openKlineWS();
+  if(window.ResizeObserver&&!el._ro){ el._ro=new ResizeObserver(()=>{ if(CHART)CHART.applyOptions({width:el.clientWidth,height:el.clientHeight}); }); el._ro.observe(el); }
+}
+function drawLevels(){
+  if(!SERIES)return;
+  const LC=window.LightweightCharts, f=STATE.finding;
+  const pl=(price,color,title)=>{ if(price==null)return; SERIES.createPriceLine({price:Number(price),color,lineWidth:1,lineStyle:LC.LineStyle.Dashed,axisLabelVisible:true,title}); };
+  pl(STATE.entry,'#e8b33d','вход');
+  pl(STATE.stop,'#f6465d','стоп');
+  pl(STATE.take1,'#0ecb81','тейк1');
+  pl(STATE.take2,'#0ecb81','тейк2');
+  if(f){ pl(f.support,'#4a9eff','S'); pl(f.resistance,'#4a9eff','R'); }
+}
+function openKlineWS(){
+  closeKlineWS();
+  try{
+    KWS=new WebSocket(`wss://stream.binance.com:9443/ws/${STATE.symbol.toLowerCase()}@kline_${STATE.tf}`);
+    KWS.onmessage=ev=>{ let m;try{m=JSON.parse(ev.data);}catch(e){return;} const k=m.k; if(!k||!SERIES)return;
+      SERIES.update({time:Math.floor(k.t/1000),open:+k.o,high:+k.h,low:+k.l,close:+k.c}); };
+    KWS.onerror=()=>{try{KWS.close();}catch(e){}};
+  }catch(e){ KWS=null; }
+}
+
+async function stepExit(){
+  const el=document.getElementById('ex-lvls');
+  const d=await J(`/api/exit?symbol=${STATE.symbol}&tf=${STATE.tf}&side=${STATE.side}&entry=${STATE.entry}`);
+  if(!(d.ok&&d.exit)){ el.innerHTML='<div class="muted">План выхода недоступен.</div>'; setVerdict('v-exit','warn','нет данных'); return; }
+  const e=d.exit; STATE.stop=roundTo(e.stop); STATE.take1=roundTo(e.take1); STATE.take2=roundTo(e.take2); STATE.rr1=e.rr1;
+  STATE.risk=Math.abs(STATE.entry-STATE.stop);
+  el.innerHTML=`
+    <div class="lvl"><div class="k">Вход</div><div class="v gold">$${fmt(STATE.entry)}</div></div>
+    <div class="lvl"><div class="k">Стоп</div><div class="v down">$${fmt(STATE.stop)}</div></div>
+    <div class="lvl"><div class="k">Тейк 1</div><div class="v up">$${fmt(STATE.take1)}</div></div>
+    <div class="lvl"><div class="k">Тейк 2</div><div class="v up">$${fmt(STATE.take2)}</div></div>
+    <div class="lvl"><div class="k">R:R (тейк1)</div><div class="v">${e.rr1==null?'—':Number(e.rr1).toFixed(2)}</div></div>`;
+  const rr=e.rr1||0; setVerdict('v-exit', rr>=1.5?'pass':rr>=1?'warn':'block', 'R:R '+rr.toFixed(2));
+  drawLevels();
+}
+
+async function stepEntry(){
+  const sum=document.getElementById('en-sum'), fx=document.getElementById('en-factors'), rg=document.getElementById('en-ring');
+  const d=await J(`/api/entry?symbol=${STATE.symbol}&tf=${STATE.tf}&side=${STATE.side}`);
+  if(!(d.ok&&d.entry)){ fx.innerHTML='<div class="muted">Нет данных.</div>'; setVerdict('v-entry','warn','нет данных'); return; }
+  const e=d.entry; rg.innerHTML=ring(e.score,'сила входа');
+  sum.textContent='Скоринг условий входа — качество момента по правилам, не вероятность успеха.';
+  const fac=e.factors||[];
+  fx.innerHTML=fac.map(f=>{ const mx=f.max||Math.max(Math.abs(f.points),1); const p=Math.max(0,Math.min(100,Math.round(100*f.points/mx))); const col=p>=66?'#0ecb81':p>=33?'#e8b33d':'#f6465d'; const lab=f.name||f.label||'';
+    return `<div style="margin-bottom:10px"><div class="chk" style="border:0;padding:0 0 2px"><span>${esc(lab)}</span><span class="v">${f.points}${f.max?'/'+f.max:''}</span></div>
+      <div class="barwrap"><i style="width:${p}%;background:${col}"></i></div></div>`; }).join('')||'<div class="muted">—</div>';
+  setVerdict('v-entry', e.score>=70?'pass':e.score>=50?'warn':'block', e.score+'/100');
+}
+
+async function stepNews(){
+  const el=document.getElementById('su-news');
+  const d=await J(`/api/news?symbol=${STATE.symbol}&limit=6`);
+  if(d.ok&&d.news&&d.news.length){
+    el.innerHTML=d.news.map(n=>{ const t=new Date(n.time); const hh=isNaN(t)?'':t.toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+      return `<a class="chk" style="cursor:pointer" href="${esc(n.url)}" target="_blank" rel="noopener"><span>${esc(n.title)}</span><span class="muted" style="white-space:nowrap">${esc(n.source)} · ${hh}</span></a>`; }).join('');
+    setVerdict('v-news','info',d.news.length+' по монете');
+  } else { el.innerHTML='<div class="muted">'+esc(d.empty_text||'Свежих новостей по этой монете за 24ч нет')+'.</div>'; setVerdict('v-news','info','тихо'); }
+}
+
+async function stepTimeMachine(){
+  const el=document.getElementById('su-tm');
+  if(STATE.stop==null||STATE.take1==null){ el.innerHTML='<div class="muted">Нужен план выхода.</div>'; return; }
+  setVerdict('v-tm','info','считается…');
+  const d=await J(`/api/timemachine?symbol=${STATE.symbol}&tf=${STATE.tf}&side=${STATE.side}&entry=${STATE.entry}&stop=${STATE.stop}&target=${STATE.take1}`);
+  if(!(d.ok&&d.timemachine)){ el.innerHTML='<div class="muted">'+esc(d.error||'Машина времени недоступна')+'.</div>'; setVerdict('v-tm','warn','нет данных'); return; }
+  const mc=d.timemachine.mc, h=d.timemachine.history;
+  const cls=/тейк/.test(mc.verdict)?'pass':/стоп/.test(mc.verdict)?'block':'warn';
+  let hist='';
+  if(h&&h.ok){ hist=`<div class="hint">История (replay правила на ${h.candles_analyzed} свечах ${STATE.tf}): входов ${h.trades}, до тейка ${h.wins}, до стопа ${h.losses}, средний R ${Number(h.avg_R).toFixed(2)}.</div>`; }
+  else if(h){ hist=`<div class="hint">История: ${esc(h.reason||'нет касаний входа')}.</div>`; }
+  el.innerHTML=`
+    <div class="tiles"><div class="tile"><div class="k">Тейк первым</div><div class="v up">${mc.target_first_pct}%</div></div>
+      <div class="tile"><div class="k">Стоп первым</div><div class="v down">${mc.stop_first_pct}%</div></div>
+      <div class="tile"><div class="k">Ни то ни другое</div><div class="v">${mc.neither_pct}%</div></div>
+      <div class="tile"><div class="k">«Зелёных»</div><div class="v gold">${mc.green_pct}%</div></div></div>
+    <div class="chk"><span class="muted">Цена на конец окна (медиана, 5–95%)</span><span class="v">$${fmt(mc.median_close)} · $${fmt(mc.p5_close)}–$${fmt(mc.p95_close)}</span></div>
+    <div class="chk"><span class="muted">Средний R</span><span class="v">${mc.avg_r>=0?'+':''}${mc.avg_r}</span></div>
+    <div style="margin:12px 0 4px;font-weight:700" class="${cls==='pass'?'up':cls==='block'?'down':'gold'}">${esc(mc.verdict)}</div>
+    ${(mc.notes||[]).map(n=>`<div class="hint">${esc(n)}</div>`).join('')}
+    ${hist}
+    <div class="hint">${esc(Number(mc.replays).toLocaleString('ru-RU'))} симуляций на 5-мин барах за ${mc.days} дн., горизонт ${mc.horizon_bars} баров (24ч), seed ${mc.seed}. ${esc(mc.fees_note)} Симуляция из прошлых баров — не прогноз.</div>`;
+  setVerdict('v-tm',cls,mc.verdict.split(':')[0]);
+}
+
+async function stepBudget(){
+  const el=document.getElementById('su-budget');
+  if(STATE.stop==null){ el.innerHTML='<div class="muted">Нужен план выхода.</div>'; return; }
+  let bal=10000;
+  if(!GUEST){ const p=await J('/api/paper/'+UID); if(p.ok&&p.portfolio)bal=p.portfolio.balance; }
+  STATE.balance=bal;
+  const d=await J(`/api/budget?balance=${bal}&risk=1&entry=${STATE.entry}&stop=${STATE.stop}`);
+  if(!(d.ok&&d.budget)){ el.innerHTML='<div class="muted">Расчёт недоступен.</div>'; setVerdict('v-budget','warn','нет данных'); return; }
+  const b=d.budget; STATE.qty=(b.qty!=null?b.qty:b.size);
+  const riskMoney=(b.risk_usdt!=null?b.risk_usdt:STATE.risk*(STATE.qty||0));
+  el.innerHTML=`
+    <div class="tiles c3"><div class="tile"><div class="k">Размер</div><div class="v gold">${fmt(STATE.qty)}</div></div>
+      <div class="tile"><div class="k">Номинал</div><div class="v">$${fmt((STATE.qty||0)*STATE.entry)}</div></div>
+      <div class="tile"><div class="k">Риск при стопе</div><div class="v down">$${fmt(riskMoney)}</div></div></div>
+    <div class="hint">Счёт $${fmt(bal)}, риск 1% = $${fmt(bal*0.01)}. Размер — под этот риск при входе $${fmt(STATE.entry)} и стопе $${fmt(STATE.stop)}. Калькулятор, не рекомендация.</div>`;
+  setVerdict('v-budget','info',fmt(STATE.qty)+' ед.');
+}
+
+async function stepRisk(){
+  const el=document.getElementById('su-risk');
+  const d=await J(`/api/risk?symbol=${STATE.symbol}&tf=${STATE.tf}&side=${STATE.side}&entry=${STATE.entry}`);
+  if(!(d.ok&&d.risk)){ el.innerHTML='<div class="muted">Риск-гейт недоступен.</div>'; setVerdict('v-risk','warn','нет данных'); renderTicket('WARN'); return; }
+  const r=d.risk, pass=r.verdict==='PASS';
+  el.innerHTML=`<div style="font-size:15px;font-weight:800;margin-bottom:10px" class="${pass?'up':'down'}">${pass?'PASS — сделка в пределах правил':'ВНИМАНИЕ — есть нарушения'} · R:R ${Number(r.rr).toFixed(2)}</div>`
+    + r.checks.map(c=>`<div class="chk"><span>${esc(c.name)}</span><span class="${c.status==='PASS'?'pass':'fail'}">${c.status}</span></div>`).join('');
+  setVerdict('v-risk', pass?'pass':'block', r.verdict);
+  renderTicket(r.verdict);
+}
+
+function renderTicket(riskVerdict){
+  const el=document.getElementById('su-ticket');
+  const ok=riskVerdict==='PASS';
+  if(STATE.qty==null||STATE.stop==null){ el.innerHTML='<div class="muted">Нужны бюджет и план выхода.</div>'; setVerdict('v-ticket','warn','—'); return; }
+  const riskMoney=STATE.risk*(STATE.qty||0);
+  let btn;
+  if(GUEST){ btn='<div class="hint">Войдите через Telegram на вкладке «Портфель», чтобы создать бумажную сделку.</div><button class="cta ghost" onclick="go(\'s-portfolio\')">К Портфелю</button>'; }
+  else if(!ok){ btn='<button class="cta block" disabled>Риск-гейт не PASS — билет заблокирован</button>'; }
+  else { btn='<button class="cta" id="tk-btn" onclick="confirmTicket()">Подтвердить билет (paper)</button>'; }
+  el.innerHTML=`<div class="ticket">
+    <div class="big">${esc(STATE.symbol)} · ${sideRu(STATE.side)} · бумажная сделка</div>
+    <div class="chk"><span class="muted">Вход</span><span class="v gold">$${fmt(STATE.entry)}</span></div>
+    <div class="chk"><span class="muted">Стоп</span><span class="v down">$${fmt(STATE.stop)}</span></div>
+    <div class="chk"><span class="muted">Тейк 1 / 2</span><span class="v up">$${fmt(STATE.take1)} / $${fmt(STATE.take2)}</span></div>
+    <div class="chk"><span class="muted">Размер</span><span class="v">${fmt(STATE.qty)}</span></div>
+    <div class="chk"><span class="muted">Риск при стопе</span><span class="v down">$${fmt(riskMoney)}</span></div>
+    <div style="margin-top:14px">${btn}</div>
+    <div class="hint">Без нажатия — ничего не открывается. Это бумажный счёт (демо). Реальное исполнение — только через broker с его правилами и отдельным подтверждением.</div>
+    <div id="tk-res"></div>
+  </div>`;
+  setVerdict('v-ticket', GUEST?'info':ok?'pass':'block', GUEST?'вход':ok?'готов':'блок');
+}
+async function confirmTicket(){
+  const btn=document.getElementById('tk-btn'), res=document.getElementById('tk-res');
+  if(btn){btn.disabled=true;btn.textContent='Открываю…';}
+  const body={symbol:STATE.symbol,side:STATE.side,qty:STATE.qty,entry:STATE.entry,stop:STATE.stop,take:STATE.take1};
+  const d=await J('/api/paper/'+UID+'/open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(d.ok){ res.innerHTML='<div style="margin-top:12px" class="pass">✓ Бумажная сделка открыта. Смотрите вкладку «Портфель».</div>';
+    if(btn){btn.textContent='Открыто ✓';} setVerdict('v-ticket','pass','открыто'); }
+  else { res.innerHTML='<div style="margin-top:12px" class="fail">'+esc(d.error||'Не удалось открыть')+'</div>'; if(btn){btn.disabled=false;btn.textContent='Подтвердить билет (paper)';} }
+}
+
+/* ===== PORTFOLIO ===== */
+document.querySelectorAll('#pf-tabs .tb').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('#pf-tabs .tb').forEach(x=>x.classList.toggle('on',x===t));
+  const pa=t.dataset.t==='paper'; document.getElementById('pf-paper').style.display=pa?'':'none';
+  document.getElementById('pf-journal').style.display=pa?'none':''; if(!pa)loadJournal();
+});
+function renderGuest(boxId){
+  const box=document.getElementById(boxId); if(!box)return;
+  if(!GUEST){ box.style.display='none'; return; }
+  box.style.display='block';
+  let widget = CFG.bot_username ? '<div id="tg-login" style="margin-top:10px"></div>'
+    : '<div class="hint">Вход через Telegram настраивается. Открывайте приложение из бота кнопкой «Открыть».</div>';
+  box.innerHTML='<div class="h2">Гость</div><div style="font-size:14px">Бумажный счёт и журнал доступны после входа через Telegram.</div>'+widget;
+  if(CFG.bot_username){ const sc=document.createElement('script'); sc.async=true; sc.src='https://telegram.org/js/telegram-widget.js?22';
+    sc.setAttribute('data-telegram-login',CFG.bot_username); sc.setAttribute('data-size','large');
+    sc.setAttribute('data-userpic','false'); sc.setAttribute('data-onauth','onTGAuth(user)'); sc.setAttribute('data-request-access','write');
+    document.getElementById('tg-login').appendChild(sc); }
+}
+function onTGAuth(user){ if(user&&user.id){ try{localStorage.setItem('cp_uid',user.id);}catch(e){} UID=user.id; GUEST=false; loadPortfolio(); } }
+async function loadPortfolio(){
+  renderGuest('pf-guest');
+  const head=document.getElementById('pp-head'), pos=document.getElementById('pp-pos');
+  if(GUEST){ head.innerHTML='<div class="muted">Войдите, чтобы видеть бумажный счёт.</div>'; pos.innerHTML='<div class="muted">—</div>'; return; }
+  const p=await J('/api/paper/'+UID);
+  if(p.ok&&p.portfolio){ const pf=p.portfolio;
+    head.innerHTML=`<div class="r"><span class="muted">Свободный баланс</span><span class="v gold" style="font-size:20px">${fmt(pf.balance)} USDT</span></div>
+      <div class="r"><span class="muted">Открытых позиций</span><span class="v">${pf.positions.length}</span></div>`;
+    pos.innerHTML=pf.positions.length?pf.positions.map(x=>`<div class="chk"><span>${esc(x.symbol)} · <span class="badge ${x.side==='long'?'l':'s'}">${sideRu(x.side)}</span> ${fmt(x.qty)}</span><span class="v">вход $${fmt(x.entry_price)}</span></div>`).join(''):'<div class="muted">Открытых позиций нет.</div>';
+  } else { head.innerHTML='<div class="muted">Нет данных.</div>'; pos.innerHTML=''; }
+}
+async function loadJournal(){
+  const el=document.getElementById('jr-tiles');
+  if(GUEST){ el.innerHTML='<div class="muted">Войдите через Telegram, чтобы видеть журнал.</div>'; return; }
+  const d=await J('/api/journal/'+UID);
+  if(d.ok&&d.stats){ const s=d.stats;
+    el.innerHTML=`<div class="tile"><div class="k">Сделок</div><div class="v">${s.total!=null?s.total:(s.trades||0)}</div></div>
+      <div class="tile"><div class="k">Win rate</div><div class="v">${s.win_rate!=null?Math.round(s.win_rate*100)+'%':'—'}</div></div>
+      <div class="tile"><div class="k">Средний R</div><div class="v">${(s.avg_r!=null?s.avg_r:s.avg_R)!=null?Number(s.avg_r!=null?s.avg_r:s.avg_R).toFixed(2):'—'}</div></div>`;
+  } else el.innerHTML='<div class="muted">Нет данных.</div>';
+}
+
+/* ===== ALERTS ===== */
+async function loadAlerts(){
+  restoreToggles();
+  const el=document.getElementById('al-list');
+  if(GUEST){ el.innerHTML='<div class="muted">Войдите через Telegram, чтобы видеть подписки.</div>'; return; }
+  const d=await J('/api/alerts/'+UID);
+  if(d.ok&&d.alerts&&d.alerts.length){ el.innerHTML=d.alerts.map(a=>`<div class="chk"><span>${esc(a.symbol)} · ${esc(a.condition_type)}</span><span class="gold">${fmt(a.threshold)}</span></div>`).join(''); }
+  else el.innerHTML='<div class="muted">Активных подписок нет. Поставьте в боте: /watch ПАРА тип порог.</div>';
+}
+
+/* scanner chips */
 document.querySelectorAll('#sc-chips .chip').forEach(c=>c.onclick=()=>{
-  document.querySelectorAll('#sc-chips .chip').forEach(x=>x.classList.remove('on')); c.classList.add('on');
+  document.querySelectorAll('#sc-chips .chip').forEach(x=>x.classList.toggle('on',x===c));
   STATE.scanFilter=c.dataset.f; renderScanList();
 });
-function selectFinding(i){
-  const f=STATE.findings[i]; if(!f)return;
-  STATE.finding=f; STATE.symbol=f.symbol; STATE.side=f.side; STATE.entry=f.price; STATE.tf='1h'; STATE.exitMult='1.5';
-  go('s-pattern');
-}
-/* ===== Топ-идеи ===== */
-function bestPred(d){ if(STATE.bestFilter!=='all'&&d.side!==STATE.bestFilter)return false; if(d.score<STATE.bestMin)return false; return true; }
-function renderBest(){
-  const el=document.getElementById('bt-list');
-  if(!STATE.bestIdeas.length){ el.innerHTML='<div class="muted">Сильных сетапов по правилам сейчас нет.</div>'; return; }
-  const list=STATE.bestIdeas.filter(bestPred);
-  if(!list.length){ el.innerHTML='<div class="muted">По этому фильтру идей нет.</div>'; return; }
-  el.innerHTML='<div class="g2">'+list.map(d=>{const idx=STATE.bestIdeas.indexOf(d);return `<div class="card" style="cursor:pointer;margin:0" onclick="selectBest(${idx})">
-    <div style="display:flex;align-items:center;gap:14px">
-      <div style="flex:0 0 72px">${gauge(d.score,72)}</div>
-      <div style="flex:1;min-width:0">
-        <div style="font-weight:800;font-size:16px">${d.pair} · <span class="${d.side==='long'?'up':'down'}">${sideRu(d.side)}</span></div>
-        <div class="muted" style="font-size:12px">${d.pattern||'—'} · RSI ${d.rsi!=null?Math.round(d.rsi):'—'}</div>
-        <div style="margin-top:5px"><span class="badge">скептик ${d.skeptic.passed}/${d.skeptic.total}</span> <span class="badge">риск-гейт ${d.risk_gate}</span></div>
-      </div></div>
-    <div class="lvls" style="margin-top:12px">
-      <div class="lvl"><div class="k">Вход</div><div class="v">${fmt(d.entry)}</div></div>
-      <div class="lvl"><div class="k">Стоп</div><div class="v down">${fmt(d.stop)}</div></div>
-      <div class="lvl"><div class="k">Тейк1</div><div class="v up">${fmt(d.take1)}</div></div>
-      <div class="lvl"><div class="k">R:R</div><div class="v">${d.rr1.toFixed(2)}</div></div>
-    </div></div>`;}).join('')+'</div>';
-}
-async function loadBest(){
-  const el=document.getElementById('bt-list');
-  const d=await J('/api/best');
-  if(d.warming){ setAgo('bt-upd',null); el.innerHTML='<div class="muted">⏳ ищем лучшие сетапы…</div>'; return; }
-  if(!d.ok){ el.innerHTML='<div class="muted">Недоступно.</div>'; return; }
-  STATE.bestIdeas=d.ideas||[]; setAgo('bt-upd',d.updated_at);
-  renderBest();
-}
-function selectBest(i){
-  const d=STATE.bestIdeas[i]; if(!d)return;
-  let f=(STATE.findings||[]).find(x=>x.symbol===d.pair);
-  f=f?Object.assign({},f,{side:d.side,price:d.entry}):{symbol:d.pair,side:d.side,price:d.entry,score:d.score,structure:d.pattern,patterns:[d.pattern],factors:[]};
-  STATE.finding=f; STATE.symbol=d.pair; STATE.side=d.side; STATE.entry=d.entry; STATE.tf='1h'; STATE.exitMult='1.5';
-  go('s-pattern');
-}
-document.querySelectorAll('#bt-chips .chip').forEach(c=>c.onclick=()=>{document.querySelectorAll('#bt-chips .chip').forEach(x=>x.classList.remove('on'));c.classList.add('on');STATE.bestFilter=c.dataset.f;renderBest();});
-(function(){const m=document.getElementById('bt-min');if(m)m.oninput=()=>{STATE.bestMin=+m.value;document.getElementById('bt-minv').textContent=m.value;renderBest();};})();
 
-async function renderPattern(f){
-  if(!f){ document.getElementById('pt-title').textContent='Выберите пару в сканере'; return; }
-  const sym=f.symbol;
-  document.getElementById('pt-title').textContent=(f.structure||(f.patterns&&f.patterns[0])||'Паттерн')+' — '+sym;
-  document.getElementById('pt-sub').textContent='Сторона: '+sideRu(f.side);
-  document.getElementById('pt-gauge').innerHTML=gauge(f.score);
-  document.getElementById('pt-score').textContent=f.score+'/100';
-  document.getElementById('pt-side').textContent=sideRu(f.side);
-  document.getElementById('pt-struct').textContent=f.structure||'—';
-  document.getElementById('pt-factors').innerHTML=(f.factors||[]).map(x=>`<div class="chk"><span class="muted">${x.name}</span><span class="${x.points>0?'pass':'fail'}">${x.points}/${x.max}</span></div>`).join('');
-  document.getElementById('pt-chart').innerHTML='<div class="muted" style="padding:40px;text-align:center">загрузка…</div>';
-  document.getElementById('pt-lvls').innerHTML='';
-  const [ex,k]=await Promise.all([ J('/api/exit?symbol='+sym+'&side='+f.side+'&entry='+f.price), J('/api/klines?symbol='+sym+'&tf=1h&limit=80') ]);
-  if(STATE.finding!==f) return;
-  const lv=ex.ok?ex.exit:null;
-  const levels=lv?[{v:f.price,c:'#ffffff'},{v:lv.stop,c:'#f6465d'},{v:lv.take1,c:'#0ecb81'}]:[];
-  document.getElementById('pt-chart').innerHTML=candles((k.ok&&k.symbol===sym)?k.candles:null,levels);
-  document.getElementById('pt-lvls').innerHTML=lv?`<div class="lvl"><div class="k">Вход</div><div class="v">${fmt(f.price)}</div></div>
-    <div class="lvl"><div class="k">Стоп</div><div class="v down">${fmt(lv.stop)}</div></div>
-    <div class="lvl"><div class="k">Цель</div><div class="v up">${fmt(lv.take1)}</div></div>`:'<div class="muted">Уровни недоступны.</div>';
+/* ===== boot ===== */
+async function boot(){
+  const cfg=await J('/api/config'); if(cfg.ok){ CFG.bot_username=cfg.bot_username||''; CFG.version=cfg.version||''; }
+  restoreToggles();
+  loadScan();
 }
-async function loadTA(){
-  document.getElementById('ta-sym').textContent=STATE.symbol+' · '+STATE.tf.toUpperCase();
-  const tf=STATE.tf, sym=STATE.symbol;
-  document.getElementById('ta-chart').innerHTML='<div class="muted" style="padding:40px;text-align:center">загрузка…</div>';
-  document.getElementById('ta-ind').innerHTML='<div class="muted">Загрузка…</div>'; document.getElementById('ta-sr').innerHTML='';
-  const [k,t]=await Promise.all([ J('/api/klines?symbol='+sym+'&tf='+tf+'&limit=80'), J('/api/ta?symbol='+sym+'&tf='+tf) ]);
-  if(STATE.symbol!==sym||STATE.tf!==tf) return;
-  document.getElementById('ta-chart').innerHTML=candles((k.ok&&k.symbol===sym)?k.candles:null,[]);
-  if(t.ok&&t.ta){ const a=t.ta,e=a.ema||{};
-    document.getElementById('ta-ind').innerHTML=`
-      <div class="r"><span class="muted">Цена</span><span class="v">$${fmt(a.price)}</span></div>
-      <div class="r"><span class="muted">Тренд</span><span class="v" style="font-weight:600;font-size:12.5px;max-width:62%">${a.trend||'—'}</span></div>
-      <div class="r"><span class="muted">EMA 20 / 50 / 200</span><span class="v">${fmt(e.ema20)} / ${fmt(e.ema50)} / ${fmt(e.ema200)}</span></div>
-      <div class="r"><span class="muted">RSI (14)</span><span class="v">${a.rsi!=null?a.rsi.toFixed(1):'—'} · ${a.rsi_state||''}</span></div>
-      <div class="r"><span class="muted">MACD</span><span class="v" style="font-weight:600;font-size:12px;max-width:62%">${a.macd_state||'—'}</span></div>
-      <div class="r"><span class="muted">ATR (14)</span><span class="v">${fmt(a.atr)} (${a.atr_pct!=null?a.atr_pct.toFixed(2):'—'}%) · ${a.volatility_state||''}</span></div>
-      <div class="r"><span class="muted">Объём</span><span class="v" style="font-size:12.5px">${a.volume_state||'—'}</span></div>`;
-    document.getElementById('ta-sr').innerHTML=`<div class="r"><span class="muted">Сопротивление</span><span class="v down">${a.resistance!=null?fmt(a.resistance):'—'}</span></div>
-      <div class="r"><span class="muted">Поддержка</span><span class="v up">${a.support!=null?fmt(a.support):'—'}</span></div>`;
-  } else { document.getElementById('ta-ind').innerHTML='<div class="muted">Данные по '+sym+' '+tf.toUpperCase()+' недоступны.</div>'; }
-}
-document.querySelectorAll('#ta-tfs .tf').forEach(t=>t.onclick=()=>{document.querySelectorAll('#ta-tfs .tf').forEach(x=>x.classList.remove('on'));t.classList.add('on');STATE.tf=t.dataset.tf;loadTA();});
-async function loadTM(){ const k=await J('/api/klines?symbol='+STATE.symbol+'&tf=1d&limit=80'); document.getElementById('tm-chart').innerHTML=candles(k.ok?k.candles:null,[],640,200); }
-async function loadJournal(){
-  const tiles=document.getElementById('jr-tiles'),list=document.getElementById('jr-list');
-  if(GUEST){ tiles.innerHTML=guestCard(); list.innerHTML=''; return; }
-  const d=await J('/api/journal/'+UID);
-  const s=(d.ok&&d.stats)?d.stats:{total:0,win_rate:0,avg_r:0,expectancy:0,best_r:null,worst_r:null};
-  tiles.innerHTML=`<div class="tile"><div class="k">Сделок</div><div class="v">${s.total||0}</div></div>
-    <div class="tile"><div class="k">Винрейт</div><div class="v">${((s.win_rate||0)*100).toFixed(1)}%</div></div>
-    <div class="tile"><div class="k">Средний R</div><div class="v ${(s.avg_r||0)>=0?'up':'down'}">${(s.avg_r||0)>=0?'+':''}${(s.avg_r||0).toFixed(2)}R</div></div>
-    <div class="tile"><div class="k">Expectancy</div><div class="v">${(s.expectancy||0)>=0?'+':''}${(s.expectancy||0).toFixed(2)}R</div></div>
-    <div class="tile"><div class="k">Лучший R</div><div class="v up">${s.best_r!=null?'+'+s.best_r.toFixed(2):'—'}</div></div>
-    <div class="tile"><div class="k">Худший R</div><div class="v down">${s.worst_r!=null?s.worst_r.toFixed(2):'—'}</div></div>`;
-  list.innerHTML=s.total?('<div class="muted">Закрытых сделок: '+s.total+'. Детали и записи — в боте (/journal).</div>'):'<div class="muted">Пока нет закрытых сделок. Запись — командой <b>/trade</b> в боте.</div>';
-}
-async function loadEntry(){
-  document.getElementById('en-sym').textContent=STATE.symbol+' · '+sideRu(STATE.side);
-  document.getElementById('en-ring').innerHTML=ring(0,'…'); document.getElementById('en-summary').textContent='Загрузка…'; document.getElementById('en-cond').innerHTML='';
-  const sym=STATE.symbol,side=STATE.side;
-  const d=await J('/api/entry?symbol='+sym+'&side='+side);
-  if(STATE.symbol!==sym||STATE.side!==side) return;
-  if(!d.ok||!d.entry){ document.getElementById('en-ring').innerHTML=ring(0,'нет данных'); document.getElementById('en-summary').textContent='Нет данных.'; return; }
-  const e=d.entry; document.getElementById('en-ring').innerHTML=ring(e.score,'готовность');
-  document.getElementById('en-summary').textContent=e.summary||'';
-  document.getElementById('en-cond').innerHTML=(e.factors||[]).map(f=>`<div class="chk"><span class="muted">${f.label}</span><span class="${f.points>=0?'pass':'fail'}">${f.points>0?'+':''}${f.points}</span></div>`).join('');
-}
-async function fillExitPairs(){
-  const sel=document.getElementById('ex-pair'); if(!sel)return;
-  if(!STATE.findings||!STATE.findings.length){ const sc=await J('/api/scan'); if(sc.ok&&sc.findings)STATE.findings=sc.findings; }
-  const opts=(STATE.findings||[]).slice(0,30);
-  // гарантируем, что текущая пара есть в списке
-  if(STATE.symbol&&!opts.some(f=>f.symbol===STATE.symbol)) opts.unshift({symbol:STATE.symbol,side:STATE.side});
-  sel.innerHTML=opts.map(f=>`<option value="${f.symbol}" ${f.symbol===STATE.symbol?'selected':''}>${f.symbol} · ${sideRu(f.side||'long')}</option>`).join('');
-}
-async function loadExit(){
-  await fillExitPairs();
-  document.getElementById('ex-sym').textContent=STATE.symbol+' · '+sideRu(STATE.side);
-  document.querySelectorAll('#ex-tabs .tb').forEach(t=>t.classList.toggle('on',t.dataset.mult===STATE.exitMult));
-  const el=document.getElementById('ex-rows'); el.innerHTML='<div class="muted">Загрузка…</div>';
-  const sym=STATE.symbol,side=STATE.side,mult=STATE.exitMult;
-  const d=await J('/api/exit?symbol='+sym+'&side='+side+'&mult='+mult+(STATE.entry?'&entry='+STATE.entry:''));
-  if(STATE.symbol!==sym||STATE.side!==side||STATE.exitMult!==mult) return;
-  if(!d.ok||!d.exit){ el.innerHTML='<div class="muted">Нет данных.</div>'; return; }
-  const x=d.exit; el.innerHTML=`<div class="r"><span class="muted">Вход</span><span class="v">${fmt(x.entry)}</span></div>
-    <div class="r"><span class="muted">Стоп (×${x.atr_mult} ATR)</span><span class="v down">${fmt(x.stop)}</span></div>
-    <div class="r"><span class="muted">Тейк 1</span><span class="v up">${fmt(x.take1)} · R:R ${x.rr1.toFixed(2)}</span></div>
-    <div class="r"><span class="muted">Тейк 2</span><span class="v up">${fmt(x.take2)} · R:R ${x.rr2.toFixed(2)}</span></div>`;
-  const names={'2.0':'Консервативная','1.5':'Базовая','1.0':'Агрессивная'};
-  document.getElementById('ex-hint').innerHTML=`Пресет: <b>${names[mult]||mult}</b> (×${mult} ATR). Арифметика от ATR и уровней, не рекомендация.`;
-}
-document.querySelectorAll('#ex-tabs .tb').forEach(t=>t.onclick=()=>{STATE.exitMult=t.dataset.mult;loadExit();});
-document.getElementById('ex-pair').onchange=function(){
-  const f=(STATE.findings||[]).find(x=>x.symbol===this.value);
-  STATE.symbol=this.value;
-  if(f){ STATE.side=f.side; STATE.entry=f.price; } else { STATE.entry=null; }
-  loadExit();
-};
-async function loadBudget(){
-  document.getElementById('bd-in').innerHTML='<div class="muted">Загрузка…</div>'; document.getElementById('bd-size').textContent='—'; document.getElementById('bd-out').innerHTML='';
-  const bal=(!GUEST)?await (async()=>{const pf=await J('/api/paper/'+UID);return (pf.ok&&pf.portfolio)?pf.portfolio.balance:10000;})():10000;
-  const sym=STATE.symbol,side=STATE.side;
-  const ex=await J('/api/exit?symbol='+sym+'&side='+side+'&mult='+STATE.exitMult+(STATE.entry?'&entry='+STATE.entry:''));
-  if(STATE.symbol!==sym||STATE.side!==side) return;
-  if(!ex.ok||!ex.exit){ document.getElementById('bd-in').innerHTML='<div class="muted">Нет данных по уровням.</div>'; return; }
-  const entry=ex.exit.entry,stop=ex.exit.stop;
-  const bd=await J('/api/budget?balance='+bal+'&risk=1&entry='+entry+'&stop='+stop);
-  document.getElementById('bd-in').innerHTML=`<div class="r"><span class="muted">Баланс</span><span class="v">${fmt(bal)} USDT</span></div>
-    <div class="r"><span class="muted">Риск на сделку</span><span class="v">1.0%</span></div>
-    <div class="r"><span class="muted">Вход / Стоп</span><span class="v">${fmt(entry)} / ${fmt(stop)}</span></div>`;
-  if(bd.ok&&bd.budget){ const b=bd.budget;
-    document.getElementById('bd-size').textContent=fmt(b.qty)+' '+sym.replace('USDT','');
-    document.getElementById('bd-out').innerHTML=`<div class="r"><span class="muted">Риск в деньгах</span><span class="v">${fmt(b.risk_usdt)} USDT</span></div>
-      <div class="r"><span class="muted">Маржа (1x)</span><span class="v">${fmt(b.position_usdt)} USDT</span></div>`;
-  } else document.getElementById('bd-size').textContent='—';
-}
-async function loadRisk(){
-  document.getElementById('rk-sym').textContent=STATE.symbol+' · '+sideRu(STATE.side);
-  const el=document.getElementById('rk-body'); el.innerHTML='<div class="muted">Загрузка…</div>';
-  const sym=STATE.symbol,side=STATE.side;
-  const d=await J('/api/risk?symbol='+sym+'&side='+side+(STATE.entry?'&entry='+STATE.entry:''));
-  if(STATE.symbol!==sym||STATE.side!==side) return;
-  if(!d.ok||!d.risk){ el.innerHTML='<div class="muted">Нет данных.</div>'; return; }
-  const r=d.risk,pass=r.verdict==='PASS';
-  el.innerHTML=`<div class="passbox ${pass?'':'warn'}"><div class="p">${pass?'✅ PASS':'⚠️ ВНИМАНИЕ'}</div>
-    <div class="muted">${pass?'Сделка соответствует правилам':'Есть слабые места'} · R:R ${r.rr.toFixed(2)}</div></div>
-    <div class="card">${r.checks.map(c=>`<div class="chk"><span class="muted">${c.name}</span><span class="${c.status==='PASS'?'pass':'fail'}">${c.status==='PASS'?'OK':'✕'}</span></div>`).join('')}</div>`;
-}
-function paperBuyHint(kind){
-  const note=document.getElementById('pp-note');
-  const cmd=kind==='sell'?'/paperclose ID':'/paperbuy '+STATE.symbol+' 0.01';
-  note.innerHTML=(kind==='sell'?'Закрытие':'Покупка')+' в демо-режиме — командой в боте: <b>'+cmd+'</b>. Это виртуальный счёт, не реальные деньги.';
-}
-async function loadPaper(){
-  const head=document.getElementById('pp-head'),pos=document.getElementById('pp-pos'),st=document.getElementById('pp-stats');
-  if(GUEST){ head.innerHTML=guestCard(); pos.innerHTML='';
-    st.innerHTML=`<div class="tile"><div class="k">Сделок</div><div class="v">—</div></div><div class="tile"><div class="k">Винрейт</div><div class="v">—</div></div><div class="tile"><div class="k">Средний R:R</div><div class="v">—</div></div>`;
-    return; }
-  const d=await J('/api/paper/'+UID);
-  if(d.ok&&d.portfolio){ head.innerHTML=`<div class="r"><span class="muted">Виртуальный счёт</span><span class="v">10 000 USDT старт</span></div>
-    <div class="r"><span class="muted">Свободный баланс</span><span class="v gold">${fmt(d.portfolio.balance)} USDT</span></div>`;
-    const ps=d.portfolio.positions||[];
-    pos.innerHTML=ps.length?ps.map(p=>`<div class="posrow"><span>${p.symbol} · ${p.side==='long'?'LONG':'SHORT'}</span><span class="v">${fmt(p.qty)} @ ${fmt(p.entry_price)}</span></div>`).join(''):'<div class="muted">Открытых позиций нет.</div>';
-  } else { head.innerHTML='<div class="muted">Портфель недоступен.</div>'; pos.innerHTML=''; }
-  const j=await J('/api/journal/'+UID); const s=(j.ok&&j.stats)?j.stats:{total:0,win_rate:0,avg_r:0};
-  st.innerHTML=`<div class="tile"><div class="k">Сделок</div><div class="v">${s.total||0}</div></div>
-    <div class="tile"><div class="k">Винрейт</div><div class="v">${((s.win_rate||0)*100).toFixed(1)}%</div></div>
-    <div class="tile"><div class="k">Средний R:R</div><div class="v ${(s.avg_r||0)>=0?'up':'down'}">${(s.avg_r||0)>=0?'+':''}${(s.avg_r||0).toFixed(2)}</div></div>`;
-}
-async function loadWhale(){
-  document.getElementById('wh-sym').textContent=STATE.symbol;
-  const el=document.getElementById('wh-body'); el.innerHTML='<div class="muted">Загрузка…</div>';
-  const sym=STATE.symbol; const d=await J('/api/whales?symbol='+sym);
-  if(STATE.symbol!==sym) return;
-  if(!d.ok||!d.whales){ el.innerHTML='<div class="muted">Недоступно.</div>'; return; }
-  const w=d.whales,top=w.top||[];
-  if(!top.length||(w.whale_count!=null&&w.whale_count===0)){
-    el.innerHTML=`<div class="muted">${w.symbol}: давление — нет китовых сделок в окне. Наблюдения, не рекомендация.</div>`;
-    return;
-  }
-  let h=`<div class="rows"><div class="r"><span class="muted">${w.symbol} · давление</span><span class="v">${w.pressure}</span></div>
-    <div class="r"><span class="muted">Крупных сделок</span><span class="v">${w.whale_count!=null?w.whale_count:'—'}</span></div></div>`;
-  el.innerHTML=h+top.map(t=>`<div class="whalerow"><span class="${t.side==='buy'?'up':'down'}">${t.side==='buy'?'покупка':'продажа'}</span><span class="v">$${fmt(t.price)} · ~${(t.notional/1e6).toFixed(1)}M</span></div>`).join('');
-}
-async function loadSkeptic(){
-  document.getElementById('sk-sym').textContent=STATE.symbol+' · '+sideRu(STATE.side);
-  const forEl=document.getElementById('sk-for'),agEl=document.getElementById('sk-against'),sum=document.getElementById('sk-sum');
-  forEl.innerHTML=''; agEl.innerHTML=''; sum.textContent='Загрузка…';
-  const sym=STATE.symbol,side=STATE.side;
-  const d=await J('/api/skeptic?symbol='+sym+'&side='+side+(STATE.entry?'&entry='+STATE.entry:''));
-  if(STATE.symbol!==sym||STATE.side!==side) return;
-  if(!d.ok||!d.skeptic){ forEl.innerHTML='<div class="muted">—</div>'; agEl.innerHTML='<div class="muted">—</div>'; sum.textContent='Нет данных.'; return; }
-  const sk=d.skeptic,checks=sk.checks||[];
-  const fors=checks.filter(c=>c.status==='PASS'),against=checks.filter(c=>c.status==='FAIL');
-  forEl.innerHTML=fors.length?fors.map(c=>`<div class="chk"><span>${c.name}</span><span class="pass">✓</span></div>`).join(''):'<div class="muted">—</div>';
-  agEl.innerHTML=against.length?against.map(c=>`<div class="chk"><span>${c.name}</span><span class="fail">✕</span></div>`).join(''):'<div class="muted">Слабых мест нет</div>';
-  sum.textContent=sk.summary||`Пройдено ${sk.passed}/${sk.total}.`;
-}
-async function loadCoordinator(){
-  const b=await J('/api/brief'),co=document.getElementById('co-body');
-  if(b.warming){ co.innerHTML='<div class="muted">⏳ автодайджест считается…</div>'; }
-  else if(b.ok&&b.brief){ const br=b.brief,ideas=br.ideas||[];
-    co.innerHTML=`<div class="muted" style="font-size:13px;margin-bottom:10px">🤖 Автодайджест. Наблюдения, не рекомендации.${b.updated_at?' · '+agoMin(b.updated_at):''}</div>
-      <div class="chk"><span class="muted">Ситуаций найдено</span><span class="pass">${br.scanned??ideas.length}</span></div>
-      <div class="chk"><span class="muted">Идей после риск-гейта</span><span class="pass">${ideas.length}</span></div>
-      <div class="chk"><span class="muted">Отсеяно по риску</span><span class="pass">${(br.filtered_out||[]).length}</span></div>
-      <div class="chk"><span class="muted">Новостей</span><span class="pass">${(br.news||[]).length}</span></div>`;
-  } else co.innerHTML='<div class="muted">Недоступно.</div>';
-}
-async function loadAlerts(){
-  const el=document.getElementById('al-list');
-  if(GUEST){ el.innerHTML=guestCard(); return; }
-  const d=await J('/api/alerts/'+UID);
-  if(!d.ok){ el.innerHTML='<div class="muted">Недоступно.</div>'; return; }
-  const a=d.alerts||[];
-  el.innerHTML=a.length?a.map(x=>`<div class="chk"><span>${x.symbol} · ${x.condition_type}</span><span class="gold">${fmt(x.threshold)}</span></div>`).join(''):'<div class="muted">Активных подписок нет. Поставить: /watch в боте.</div>';
-}
-
-/* live clock + minute refresh */
-function tickClock(){ const el=document.getElementById('hdr-clock'); if(el) el.textContent=new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
-function refreshAgo(){ document.querySelectorAll('[data-ts]').forEach(el=>{ el.textContent=agoMin(el.dataset.ts); }); }
-setInterval(tickClock,1000); setInterval(refreshAgo,60000);
-/* автообновление Топ-идей каждые 5 минут (на активном экране) */
-setInterval(()=>{ const a=document.getElementById('s-best'); if(a&&a.classList.contains('active'))loadBest();
-  const o=document.getElementById('s-overview'); if(o&&o.classList.contains('active'))loadOverview(); },300000);
-
-/* init */
-(async function init(){
-  restoreToggles(); tickClock();
-  const cfg=await J('/api/config'); if(cfg&&cfg.ok){ CFG.bot_username=cfg.bot_username||''; CFG.version=cfg.version||''; }
-  const x=await J('/api/market_index'); if(x&&x.ok&&x.index) setMiPill(x.index);
-  loadOverview();
-})();
+boot();
 </script>
 </body>
 </html>
