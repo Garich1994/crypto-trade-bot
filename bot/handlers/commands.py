@@ -12,6 +12,7 @@ from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
+    WebAppInfo,
 )
 
 from agents.alerts_agent import (
@@ -100,11 +101,10 @@ from bot.formatting import (
 logger = logging.getLogger(__name__)
 router = Router()
 
-START_TEXT = (
-    "👋 Привет! Я бот для нейтральной аналитики крипторынка.\n"
-    "Я не даю торговых указаний — только факты о цене и индикаторах.\n\n"
-    "Команды:\n"
-    "• /start — это сообщение\n"
+HELP_TEXT = (
+    "📖 Все команды CryptoPilot\n\n"
+    "• /start — приветствие и кнопка приложения\n"
+    "• /help — этот список\n"
     "• /analyze BTCUSDT [таймфрейм] — технический разбор пары (с графиком)\n"
     "• /chart BTCUSDT [таймфрейм] — график пары (свечи, EMA, объём, RSI)\n"
     f"   таймфреймы: {', '.join(ALLOWED_INTERVALS)} (по умолчанию {DEFAULT_TIMEFRAME})\n"
@@ -151,6 +151,35 @@ START_TEXT = (
     f"{DISCLAIMER}"
 )
 
+# Публичный URL Mini App (HTTPS для Telegram WebApp); на ПК — демо на localhost.
+MINIAPP_PUBLIC_URL = os.environ.get("MINIAPP_PUBLIC_URL", "http://localhost:8080").strip()
+
+START_TEXT = (
+    "👋 CryptoPilot — нейтральная аналитика крипторынка.\n"
+    "Открой приложение кнопкой ниже или пользуйся командами.\n\n"
+    "Ключевые команды:\n"
+    "• /analyze BTCUSDT — теханализ пары с графиком\n"
+    "• /scan — обзор рынка и сильные ситуации\n"
+    "• /brief — автобриф (новости + топ идеи)\n"
+    "• /entry BTCUSDT long — оценка условий входа\n"
+    "• /paper — виртуальный портфель\n"
+    "• /help — полный список команд\n\n"
+    f"{DISCLAIMER}"
+)
+
+
+def _miniapp_keyboard() -> InlineKeyboardMarkup | None:
+    """Кнопка запуска Mini App: WebApp для HTTPS, обычная ссылка для демо-localhost."""
+    url = MINIAPP_PUBLIC_URL
+    if url.startswith("https://"):
+        btn = InlineKeyboardButton(
+            text="📱 Открыть приложение", web_app=WebAppInfo(url=url)
+        )
+    else:
+        # Telegram не принимает WebApp по http/localhost — отдаём обычную ссылку.
+        btn = InlineKeyboardButton(text="📱 Открыть приложение (демо)", url=url)
+    return InlineKeyboardMarkup(inline_keyboard=[[btn]])
+
 
 def _user_id(message: Message) -> int:
     return message.from_user.id if message.from_user else 0
@@ -169,7 +198,19 @@ async def _send_and_cleanup(message: Message, path: str) -> None:
 
 @router.message(CommandStart())
 async def cmd_start(message: Message) -> None:
-    await message.answer(START_TEXT)
+    try:
+        await message.answer(START_TEXT, reply_markup=_miniapp_keyboard())
+    except Exception:
+        # Если Telegram не принял кнопку (напр. localhost) — отправим хотя бы текст.
+        logger.exception("Не удалось отправить /start с кнопкой")
+        await message.answer(
+            START_TEXT + f"\n\n📱 Приложение: {MINIAPP_PUBLIC_URL}"
+        )
+
+
+@router.message(Command("help"))
+async def cmd_help(message: Message) -> None:
+    await message.answer(HELP_TEXT)
 
 
 @router.message(Command("analyze"))
