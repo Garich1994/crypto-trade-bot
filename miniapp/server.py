@@ -28,6 +28,7 @@ from agents.market_index import market_index
 from agents.paper_agent import portfolio as paper_portfolio
 from agents.scanner_agent import scan
 from agents.skeptic_agent import skeptic
+from agents.ta_agent import analyze
 from agents.whale_agent import get_whales
 
 _INDEX = Path(__file__).resolve().parent / "index.html"
@@ -38,6 +39,11 @@ PORT = int(os.environ.get("MINIAPP_PORT", "8080"))
 # Если задан DOMAIN (прод за HTTPS) — ссылка на дашборд идёт на него, иначе локально.
 _DOMAIN = os.environ.get("DOMAIN", "").strip()
 DASHBOARD_URL = f"https://{_DOMAIN}" if _DOMAIN else f"http://localhost:{PORT}"
+# Имя бота для Telegram Login Widget на сайте (вне Telegram). Пусто — гостевой режим.
+BOT_USERNAME = os.environ.get("BOT_USERNAME", "").strip().lstrip("@")
+# Версия сборки — для подписи и обхода кэша Telegram (?v= / no-cache).
+APP_VERSION = (os.environ.get("APP_VERSION", "").strip()
+               or datetime.now(timezone.utc).strftime("%Y%m%d%H%M"))
 
 #: Монеты рынка на дашборде.
 _MARKET_SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT")
@@ -48,6 +54,7 @@ _REFRESH_INTERVAL = 300  # секунд (5 минут)
 AUTO_REFRESH = True       # в тестах выключается, чтобы управлять кэшем вручную
 _INDEX_CACHE: dict = {"data": None, "updated_at": None}
 _SCAN_CACHE: dict = {"data": None, "updated_at": None}
+_BRIEF_CACHE: dict = {"data": None, "updated_at": None}
 
 
 def _now_iso() -> str:
@@ -72,9 +79,18 @@ async def _refresh_scan() -> None:
         logger.exception("Не удалось обновить скан")
 
 
+async def _refresh_brief() -> None:
+    try:
+        brief = await build_brief(top=3)
+        _BRIEF_CACHE["data"] = brief
+        _BRIEF_CACHE["updated_at"] = _now_iso()
+    except Exception:  # noqa: BLE001
+        logger.exception("Не удалось обновить сводку (brief)")
+
+
 async def refresh_now() -> None:
-    """Пересчитать индекс и скан сейчас (используется циклом и тестами)."""
-    await asyncio.gather(_refresh_index(), _refresh_scan())
+    """Пересчитать индекс, скан и сводку сейчас (используется циклом и тестами)."""
+    await asyncio.gather(_refresh_index(), _refresh_scan(), _refresh_brief())
 
 
 async def _refresh_loop() -> None:
@@ -104,7 +120,17 @@ def _resp(data, status: int = 200) -> web.Response:
 
 
 async def index(request: web.Request) -> web.Response:
-    return web.FileResponse(_INDEX)
+    # no-cache: Telegram WebApp агрессивно кэширует страницу — отдаём всегда свежую.
+    return web.FileResponse(_INDEX, headers={
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    })
+
+
+async def api_config(request: web.Request) -> web.Response:
+    """Конфиг для фронта: имя бота для входа и версия сборки."""
+    return _resp({"ok": True, "bot_username": BOT_USERNAME, "version": APP_VERSION})
 
 
 async def healthz(request: web.Request) -> web.Response:
@@ -174,7 +200,21 @@ async def api_exit(request: web.Request) -> web.Response:
         side = request.query.get("side", "long")
         entry = request.query.get("entry")
         entry = float(entry) if entry else await _entry_price(symbol)
-        return _resp({"ok": True, "exit": await plan_exit(symbol, tf, side, entry)})
+        # Пресеты выхода задают множитель ATR (стоп/тейки). По умолчанию 1.5 (базовая).
+        mult = float(request.query.get("mult", "1.5"))
+        if mult <= 0:
+            mult = 1.5
+        return _resp({"ok": True, "exit": await plan_exit(symbol, tf, side, entry, mult)})
+    except Exception as exc:  # noqa: BLE001
+        return _resp({"ok": False, "error": str(exc)})
+
+
+async def api_ta(request: web.Request) -> web.Response:
+    """Технический анализ пары для выбранного таймфрейма (все индикаторы заново)."""
+    try:
+        symbol = request.query.get("symbol", "BTCUSDT").upper()
+        tf = request.query.get("tf", "1h")
+        return _resp({"ok": True, "ta": await analyze(symbol, tf)})
     except Exception as exc:  # noqa: BLE001
         return _resp({"ok": False, "error": str(exc)})
 
@@ -255,11 +295,14 @@ async def api_klines(request: web.Request) -> web.Response:
 
 
 async def api_brief(request: web.Request) -> web.Response:
-    try:
-        brief = await build_brief(top=3)
-        return _resp({"ok": True, "brief": brief})
-    except Exception as exc:  # noqa: BLE001
-        return _resp({"ok": False, "error": str(exc)})
+    # Только отдача фонового кэша — без тяжёлой сборки сводки в обработчике.
+    if _BRIEF_CACHE["data"] is None:
+        return _resp({"ok": True, "warming": True})
+    return _resp({
+        "ok": True,
+        "brief": _BRIEF_CACHE["data"],
+        "updated_at": _BRIEF_CACHE["updated_at"],
+    })
 
 
 async def api_whales(request: web.Request) -> web.Response:
@@ -291,6 +334,8 @@ def create_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", index)
     app.router.add_get("/healthz", healthz)
+    app.router.add_get("/api/config", api_config)
+    app.router.add_get("/api/ta", api_ta)
     app.router.add_get("/api/market", api_market)
     app.router.add_get("/api/market_index", api_market_index)
     app.router.add_get("/api/scan", api_scan)

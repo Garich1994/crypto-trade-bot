@@ -1222,13 +1222,22 @@ async def _check_new_apis(errors: list[str]) -> None:
                  "patterns": ["x"], "structure": "bull flag", "change_24h": 3.0,
                  "price": 80000, "rsi": 55}]
 
-    saved = (miniapp_server.market_index, miniapp_server.scan, miniapp_server.AUTO_REFRESH)
-    saved_cache = (dict(miniapp_server._INDEX_CACHE), dict(miniapp_server._SCAN_CACHE))
+    async def fake_brief(top=3):
+        return {"generated_at": "2026-01-01T00:00:00+00:00", "timeframe": "1h",
+                "market_summary": "наблюдается 1 ситуаций", "scanned": 1,
+                "news": [], "ideas": [], "filtered_out": []}
+
+    saved = (miniapp_server.market_index, miniapp_server.scan,
+             miniapp_server.build_brief, miniapp_server.AUTO_REFRESH)
+    saved_cache = (dict(miniapp_server._INDEX_CACHE), dict(miniapp_server._SCAN_CACHE),
+                   dict(miniapp_server._BRIEF_CACHE))
     miniapp_server.market_index = fake_index
     miniapp_server.scan = fake_scan
+    miniapp_server.build_brief = fake_brief
     miniapp_server.AUTO_REFRESH = False
     miniapp_server._INDEX_CACHE.update({"data": None, "updated_at": None})
     miniapp_server._SCAN_CACHE.update({"data": None, "updated_at": None})
+    miniapp_server._BRIEF_CACHE.update({"data": None, "updated_at": None})
 
     client = None
     try:
@@ -1242,6 +1251,9 @@ async def _check_new_apis(errors: list[str]) -> None:
         ws = await (await client.get("/api/scan")).json()
         if not (ws.get("ok") and ws.get("warming")):
             errors.append("api: scan нет warming до расчёта")
+        wb = await (await client.get("/api/brief")).json()
+        if not (wb.get("ok") and wb.get("warming")):
+            errors.append("api: brief нет warming до расчёта")
 
         # 2) Фоновый расчёт.
         await miniapp_server.refresh_now()
@@ -1273,16 +1285,29 @@ async def _check_new_apis(errors: list[str]) -> None:
             errors.append("api: scan без updated_at")
         if dt2 > 1.0:
             errors.append(f"api: scan дольше 1с ({dt2:.2f}s)")
+
+        t2 = _t.monotonic()
+        r3 = await client.get("/api/brief")
+        dt3 = _t.monotonic() - t2
+        d3 = await r3.json()
+        if r3.status != 200 or not d3.get("ok") or "brief" not in d3:
+            errors.append(f"api: brief не отдал кэш ({d3})")
+        if not d3.get("updated_at"):
+            errors.append("api: brief без updated_at")
+        if dt3 > 1.0:
+            errors.append(f"api: brief дольше 1с ({dt3:.2f}s)")
     except Exception as exc:  # noqa: BLE001
         errors.append(f"api: сервер упал — {exc!r}")
     finally:
         if client is not None:
             await client.close()
-        miniapp_server.market_index, miniapp_server.scan, miniapp_server.AUTO_REFRESH = saved
+        (miniapp_server.market_index, miniapp_server.scan,
+         miniapp_server.build_brief, miniapp_server.AUTO_REFRESH) = saved
         miniapp_server._INDEX_CACHE.update(saved_cache[0])
         miniapp_server._SCAN_CACHE.update(saved_cache[1])
+        miniapp_server._BRIEF_CACHE.update(saved_cache[2])
     if len(errors) == before:
-        print(f"  {OK} warming до расчёта; после — кэш <1с с updated_at")
+        print(f"  {OK} warming до расчёта; после — кэш <1с с updated_at (index/scan/brief)")
 
 
 async def _check_detail_apis(errors: list[str]) -> None:
@@ -1296,10 +1321,11 @@ async def _check_detail_apis(errors: list[str]) -> None:
         return {"score": 60, "factors": [{"label": "RSI 55 — нейтрально", "points": 0}],
                 "summary": "нейтрально", "symbol": symbol, "side": side}
 
-    async def f_exit(symbol, tf, side, entry):
-        return {"entry": entry, "stop": entry * 0.98, "take1": entry * 1.03,
-                "take2": entry * 1.05, "rr1": 1.5, "rr2": 2.5, "atr_mult": 1.5,
-                "atr": 100.0, "risk": entry * 0.02, "side": side, "symbol": symbol}
+    async def f_exit(symbol, tf, side, entry, mult=1.5):
+        risk = entry * 0.02 * (mult / 1.5)  # уровни зависят от множителя ATR
+        return {"entry": entry, "stop": entry - risk, "take1": entry + risk * 1.5,
+                "take2": entry + risk * 2.0, "rr1": 1.5, "rr2": 2.0, "atr_mult": mult,
+                "atr": 100.0, "risk": risk, "side": side, "symbol": symbol}
 
     def f_calc(bal, risk, entry, stop):
         return {"risk_usdt": bal * risk / 100, "qty": 0.1,
@@ -1322,9 +1348,16 @@ async def _check_detail_apis(errors: list[str]) -> None:
     async def f_ticker(symbol):
         return {"lastPrice": "80000", "priceChangePercent": "1.0"}
 
+    async def f_ta(symbol, tf="1h"):
+        return {"symbol": symbol, "timeframe": tf, "price": 80000.0,
+                "trend": "восходящий", "ema": {"ema20": 79, "ema50": 78, "ema200": 70},
+                "rsi": 55.0, "rsi_state": "нейтрально", "atr": 100.0, "atr_pct": 1.2,
+                "volatility_state": "умеренная", "volume_state": "средний",
+                "support": 78000.0, "resistance": 85000.0}
+
     saved = {n: getattr(miniapp_server, n) for n in
              ("score_entry", "plan_exit", "calc_position", "skeptic",
-              "list_alerts", "get_klines", "get_ticker_24h", "AUTO_REFRESH")}
+              "list_alerts", "get_klines", "get_ticker_24h", "analyze", "AUTO_REFRESH")}
     miniapp_server.score_entry = f_entry
     miniapp_server.plan_exit = f_exit
     miniapp_server.calc_position = f_calc
@@ -1332,6 +1365,7 @@ async def _check_detail_apis(errors: list[str]) -> None:
     miniapp_server.list_alerts = f_alerts
     miniapp_server.get_klines = f_klines
     miniapp_server.get_ticker_24h = f_ticker
+    miniapp_server.analyze = f_ta
     miniapp_server.AUTO_REFRESH = False
 
     client = None
@@ -1341,11 +1375,14 @@ async def _check_detail_apis(errors: list[str]) -> None:
         eps = [
             "/api/entry?symbol=BTCUSDT&side=long",
             "/api/exit?symbol=BTCUSDT&side=long&entry=80000",
+            "/api/exit?symbol=BTCUSDT&side=long&entry=80000&mult=1.0",
+            "/api/ta?symbol=BTCUSDT&tf=4h",
             "/api/budget?balance=10000&risk=1&entry=80000&stop=78000",
             "/api/risk?symbol=BTCUSDT&side=long&entry=80000",
             "/api/skeptic?symbol=BTCUSDT&side=long&entry=80000",
             "/api/alerts/1",
             "/api/klines?symbol=BTCUSDT&tf=1h",
+            "/api/config",
         ]
         for ep in eps:
             t0 = _t.monotonic()
@@ -1356,6 +1393,14 @@ async def _check_detail_apis(errors: list[str]) -> None:
                 errors.append(f"api {ep}: не 200/ok ({d})")
             if dt > 2.0:
                 errors.append(f"api {ep}: дольше 2с ({dt:.2f}s)")
+
+        # Пресет выхода реально меняет уровни (mult 1.0 != 1.5).
+        e15 = (await (await client.get(
+            "/api/exit?symbol=BTCUSDT&side=long&entry=80000&mult=1.5")).json())["exit"]
+        e10 = (await (await client.get(
+            "/api/exit?symbol=BTCUSDT&side=long&entry=80000&mult=1.0")).json())["exit"]
+        if abs(e15["stop"] - e10["stop"]) < 1e-9:
+            errors.append("api: пресет выхода (mult) не меняет стоп")
     except Exception as exc:  # noqa: BLE001
         errors.append(f"api detail: сервер упал — {exc!r}")
     finally:
@@ -1364,7 +1409,7 @@ async def _check_detail_apis(errors: list[str]) -> None:
         for n, v in saved.items():
             setattr(miniapp_server, n, v)
     if len(errors) == before:
-        print(f"  {OK} все 7 новых эндпоинтов 200, ответ <2с")
+        print(f"  {OK} детальные /api/* (+ta/config/mult) 200 и <2с; пресет выхода меняет уровни")
 
 
 def _check_index_html(errors: list[str]) -> None:
