@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>CryptoPilot</title>
+<!-- Telegram Mini App SDK: даёт window.Telegram.WebApp (реальный user.id) -->
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   :root{
     --bg:#07090d; --bg2:#0b0e13; --card:#12161e; --card2:#171c26; --line:#272e3a;
@@ -140,7 +142,7 @@
           <div class="r"><span class="muted">Объём</span><span class="v" id="ov-volc">—</span></div>
         </div>
       </div>
-      <div class="hint">Широта + импульс + объём. Режим рынка, не прогноз.</div>
+      <div class="hint" id="ov-idx-hint">Широта + импульс + объём. Режим рынка, не прогноз.</div>
     </div>
     <div class="card">
       <div class="h2">⚡ Ключевые наблюдения</div>
@@ -300,12 +302,16 @@
 </div>
 
 <script>
-const UID = 1;
+// Реальный Telegram-ID пользователя (внутри Telegram); вне Telegram — fallback 1.
+const TG = (window.Telegram && Telegram.WebApp) ? Telegram.WebApp : null;
+try { if (TG) { TG.ready(); TG.expand(); } } catch (e) {}
+const UID = (TG && TG.initDataUnsafe && TG.initDataUnsafe.user && TG.initDataUnsafe.user.id) || 1;
 const fmt = n => (n==null?'—':(Math.abs(n)>=1000? Number(n).toLocaleString('ru-RU',{maximumFractionDigits:2})
   : (Math.abs(n)>=1? Number(n).toFixed(2): Number(n).toPrecision(4))));
 const pct = n => (n==null?'н/д':(n>=0?'+':'')+Number(n).toFixed(2)+'%');
 const sideRu = s => s==='long'?'лонг':'шорт';
 async function J(u){ try{return await (await fetch(u)).json();}catch(e){return {ok:false,error:String(e)};} }
+function agoMin(iso){ if(!iso) return ''; const m=(Date.now()-new Date(iso))/60000; return m<1?'обновлено только что':'обновлено '+Math.floor(m)+' мин назад'; }
 
 function gauge(val,size=108){
   val=Math.max(0,Math.min(100,val||0));
@@ -351,6 +357,14 @@ async function loadMarket(){
 }
 async function loadIndex(){
   const d=await J('/api/market_index');
+  const hint=document.getElementById('ov-idx-hint');
+  const base='Широта + импульс + объём. Режим рынка, не прогноз.';
+  if(d.warming){
+    document.getElementById('ov-gauge').innerHTML=gauge(0);
+    document.getElementById('ov-idx-val').textContent='⏳ считаем, обновите через минуту';
+    hint.textContent=base;
+    return;
+  }
   if(!d.ok||!d.index){ document.getElementById('ov-gauge').innerHTML=gauge(0); return; }
   const x=d.index;
   document.getElementById('ov-gauge').innerHTML=gauge(x.value);
@@ -358,14 +372,17 @@ async function loadIndex(){
   document.getElementById('ov-breadth').textContent=x.components.breadth;
   document.getElementById('ov-momentum').textContent=x.components.momentum;
   document.getElementById('ov-volc').textContent=x.components.volume;
+  hint.textContent=base+(d.updated_at?' · '+agoMin(d.updated_at):'');
 }
 async function loadScan(){
   const d=await J('/api/scan');
   const el=document.getElementById('sc-list');
+  if(d.warming){ el.innerHTML='<div class="muted">⏳ считаем, обновите через минуту.</div>'; return; }
   if(!d.ok){ el.innerHTML='<div class="muted">Сканер недоступен.</div>'; return; }
   STATE.findings=d.findings||[];
   if(!STATE.findings.length){ el.innerHTML='<div class="muted">Ярких наблюдений нет.</div>'; return; }
-  el.innerHTML=STATE.findings.slice(0,12).map((f,i)=>`<div class="find" onclick="openPattern(${i})">
+  const upd=d.updated_at?`<div class="muted" style="font-size:11px;margin-bottom:6px">${agoMin(d.updated_at)}</div>`:'';
+  el.innerHTML=upd+STATE.findings.slice(0,12).map((f,i)=>`<div class="find" onclick="openPattern(${i})">
     <div class="spark">${spark(null)||'📈'}</div>
     <div><div class="fn">${f.symbol} · ${sideRu(f.side)}</div>
       <div class="fp">${f.structure||f.patterns[0]} · ${pct(f.change_24h)}</div></div>
