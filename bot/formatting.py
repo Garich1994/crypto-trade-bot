@@ -458,6 +458,36 @@ def format_brief(brief: dict, auto: bool = False) -> str:
     return "\n".join(lines)
 
 
+def format_best(data: dict) -> str:
+    """Собрать текст /best — топ-идеи по правилам (наблюдения, не рекомендации)."""
+    try:
+        when = datetime.fromisoformat(data["updated_at"]).strftime("%H:%M UTC")
+    except (ValueError, KeyError, TypeError):
+        when = ""
+    ideas = data.get("ideas") or []
+    lines = [f"💡 Топ-идеи ({when}) — {len(ideas)} сетапов",
+             "Лучшие сетапы по правилам (скоринг ≥70, скептик не против, "
+             "риск-гейт PASS). Наблюдения, не рекомендации.", ""]
+    if not ideas:
+        lines.append("Сильных сетапов по правилам сейчас нет.")
+        lines.extend(["", DISCLAIMER])
+        return "\n".join(lines)
+    for i, idea in enumerate(ideas, 1):
+        side_ru = _SIDE_RU.get(idea["side"], idea["side"])
+        sk = idea.get("skeptic") or {}
+        lines.append(f"{i}. {idea['pair']} · {side_ru} — сила {idea['score']}/100")
+        lines.append(
+            f"   вход {_fmt_price(idea['entry'])}, стоп {_fmt_price(idea['stop'])}, "
+            f"тейк1 {_fmt_price(idea['take1'])} (R:R {idea['rr1']:.2f}), "
+            f"тейк2 {_fmt_price(idea['take2'])}")
+        lines.append(
+            f"   скептик {sk.get('passed', '—')}/{sk.get('total', '—')} · "
+            f"риск-гейт {idea.get('risk_gate', '—')}"
+            + (f" · {idea['pattern']}" if idea.get("pattern") else ""))
+    lines.extend(["", DISCLAIMER])
+    return "\n".join(lines)
+
+
 def format_push(idea: dict) -> str:
     """Собрать текст автопуша наблюдения."""
     side_ru = _SIDE_RU.get(idea["side"], idea["side"])

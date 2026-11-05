@@ -30,6 +30,7 @@ from agents.scanner_agent import scan
 from agents.skeptic_agent import skeptic
 from agents.ta_agent import analyze
 from agents.whale_agent import get_whales
+import agents.best_setups as best_setups
 
 _INDEX = Path(__file__).resolve().parent / "index.html"
 
@@ -103,12 +104,16 @@ async def _refresh_loop() -> None:
 async def _on_startup(app: web.Application) -> None:
     if AUTO_REFRESH:
         app["refresh_task"] = asyncio.create_task(_refresh_loop())
+        # Топ-идеи считаются своим циклом (каждые 30 минут).
+        if best_setups.AUTO_REFRESH:
+            app["best_task"] = asyncio.create_task(best_setups._loop())
 
 
 async def _on_cleanup(app: web.Application) -> None:
-    task = app.get("refresh_task")
-    if task is not None:
-        task.cancel()
+    for key in ("refresh_task", "best_task"):
+        task = app.get(key)
+        if task is not None:
+            task.cancel()
 
 
 def _resp(data, status: int = 200) -> web.Response:
@@ -207,6 +212,22 @@ async def api_exit(request: web.Request) -> web.Response:
         return _resp({"ok": True, "exit": await plan_exit(symbol, tf, side, entry, mult)})
     except Exception as exc:  # noqa: BLE001
         return _resp({"ok": False, "error": str(exc)})
+
+
+async def api_best(request: web.Request) -> web.Response:
+    """Топ-идеи из фонового кэша. Мгновенно, без тяжёлых вычислений в обработчике."""
+    data = best_setups.get_cached()
+    if data is None:
+        return _resp({"ok": True, "warming": True})
+    ideas = data.get("ideas", [])
+    return _resp({
+        "ok": True,
+        "ideas": ideas,
+        "scanned": data.get("scanned"),
+        "passed": data.get("passed"),
+        "empty_text": None if ideas else best_setups.EMPTY_TEXT,
+        "updated_at": data.get("updated_at"),
+    })
 
 
 async def api_ta(request: web.Request) -> web.Response:
@@ -335,6 +356,7 @@ def create_app() -> web.Application:
     app.router.add_get("/", index)
     app.router.add_get("/healthz", healthz)
     app.router.add_get("/api/config", api_config)
+    app.router.add_get("/api/best", api_best)
     app.router.add_get("/api/ta", api_ta)
     app.router.add_get("/api/market", api_market)
     app.router.add_get("/api/market_index", api_market_index)

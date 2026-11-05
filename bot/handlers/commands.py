@@ -69,6 +69,7 @@ from agents.paper_agent import (
     reset as paper_reset,
 )
 from agents.risk_agent import RiskError, check_risk
+import agents.best_setups as best_setups
 from agents.scanner_agent import scan
 from agents.skeptic_agent import SkepticError, skeptic
 from agents.ta_agent import analyze
@@ -79,6 +80,7 @@ from bot.formatting import (
     DISCLAIMER,
     format_alert_added,
     format_analysis,
+    format_best,
     format_brief,
     format_backtest,
     format_entry,
@@ -137,6 +139,7 @@ HELP_TEXT = (
     "• /paperreset ДА — сбросить виртуальный портфель к 10 000\n"
     "• /whales [ПАРА] — крупные (китовые) сделки на споте за недавнее окно\n"
     "• /liquidations — о ликвидациях фьючерсов (недоступны из региона)\n"
+    "• /best — топ-идеи: лучшие сетапы по правилам (скоринг ≥70, скептик, риск-гейт)\n"
     "• /brief — автобриф по рынку (новости + топ идеи + риск-гейт)\n"
     "• /autobrief on [часы] | off — авторассылка брифа каждые N часов (по умолчанию 4)\n"
     "• /autopush on [часы] | off | status — автопуш сильных наблюдений (по умолчанию выкл)\n"
@@ -160,6 +163,7 @@ START_TEXT = (
     "Ключевые команды:\n"
     "• /analyze BTCUSDT — теханализ пары с графиком\n"
     "• /scan — обзор рынка и сильные ситуации\n"
+    "• /best — топ-идеи (лучшие сетапы по правилам)\n"
     "• /brief — автобриф (новости + топ идеи)\n"
     "• /entry BTCUSDT long — оценка условий входа\n"
     "• /paper — виртуальный портфель\n"
@@ -1060,6 +1064,21 @@ async def cmd_dashboard(message: Message) -> None:
     except Exception:
         # Telegram может не принять localhost-URL в кнопке — отдаём ссылкой текстом.
         await message.answer(f"{text}\n\nАдрес: {DASHBOARD_URL}")
+
+
+@router.message(Command("best"))
+async def cmd_best(message: Message) -> None:
+    """Топ-идеи: лучшие сетапы по правилам (скоринг ≥70, скептик, риск-гейт)."""
+    data = best_setups.get_cached()
+    if data is None:
+        await message.answer("💡 Считаю топ-идеи, это займёт до минуты…")
+        try:
+            data = await best_setups.refresh_now()
+        except Exception:
+            logger.exception("Непредвиденная ошибка в /best")
+            await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+            return
+    await message.answer(format_best(data))
 
 
 @router.message(Command("brief"))

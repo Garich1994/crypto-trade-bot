@@ -53,6 +53,7 @@ from agents.journal_agent import (
     stats,
 )
 import miniapp.server as miniapp_server
+import agents.best_setups as best_setups
 from agents.market_index import compute as mi_compute
 from agents.news_agent import get_crypto_news
 from agents.scanner_agent import score_setup
@@ -1412,17 +1413,110 @@ async def _check_detail_apis(errors: list[str]) -> None:
         print(f"  {OK} детальные /api/* (+ta/config/mult) 200 и <2с; пресет выхода меняет уровни")
 
 
+async def _check_best_setups(errors: list[str]) -> None:
+    """Топ-идеи: фильтр (≥70 + скептик 5/5 + риск-гейт PASS) и /api/best (кэш, пустой)."""
+    print("\n— Проверяю Топ-идеи (best_setups + /api/best) …")
+    import time as _t
+    from aiohttp.test_utils import TestClient, TestServer
+    before = len(errors)
+
+    async def f_scan(tf, n):
+        return [{"symbol": "AAAUSDT", "price": 100.0, "rsi": 55, "structure": "breakout"},
+                {"symbol": "BBBUSDT", "price": 50.0, "rsi": 40, "structure": "bull flag"},
+                {"symbol": "CCCUSDT", "price": 200.0, "rsi": 65, "structure": None}]
+
+    async def f_score(sym, tf, side):
+        s = {"AAAUSDT": 75, "BBBUSDT": 50, "CCCUSDT": 80}[sym]
+        return {"score": s if side == "long" else 20, "factors": [], "summary": ""}
+
+    async def f_exit(sym, tf, side, price):
+        return {"entry": price, "stop": price * 0.98, "take1": price * 1.03,
+                "take2": price * 1.05, "rr1": 1.6, "rr2": 2.5, "atr_mult": 1.5}
+
+    async def f_skeptic(sym, side, entry, stop, take):
+        full = sym != "CCCUSDT"
+        checks = [{"name": n, "status": "PASS"} for n in
+                  ("RSI против направления", "Стоп vs волатильность", "Уровни против",
+                   "Участие объёма", "Тренд против")]
+        if not full:
+            checks[0]["status"] = "FAIL"
+        passed = sum(1 for c in checks if c["status"] == "PASS")
+        return {"checks": checks, "passed": passed, "total": 5, "weak_points": [],
+                "summary": "ok"}
+
+    saved = (best_setups.scan, best_setups.score_entry, best_setups.plan_exit,
+             best_setups.skeptic, best_setups.AUTO_REFRESH)
+    saved_cache = dict(best_setups._CACHE)
+    best_setups.scan = f_scan
+    best_setups.score_entry = f_score
+    best_setups.plan_exit = f_exit
+    best_setups.skeptic = f_skeptic
+    best_setups.AUTO_REFRESH = False
+
+    client = None
+    try:
+        data = await best_setups.compute_best()
+        pairs = [i["pair"] for i in data["ideas"]]
+        if pairs != ["AAAUSDT"]:
+            errors.append(f"best: фильтр пропустил не то ({pairs})")
+        if data["ideas"] and data["ideas"][0]["risk_gate"] != "PASS":
+            errors.append("best: риск-гейт не PASS у прошедшей идеи")
+
+        best_setups._CACHE.update({"data": None, "updated_at": None})
+        client = TestClient(TestServer(miniapp_server.create_app()))
+        await client.start_server()
+
+        w = await (await client.get("/api/best")).json()
+        if not (w.get("ok") and w.get("warming")):
+            errors.append(f"best: нет warming до расчёта ({w})")
+
+        await best_setups.refresh_now()
+        t0 = _t.monotonic()
+        r = await client.get("/api/best")
+        dt = _t.monotonic() - t0
+        d = await r.json()
+        if r.status != 200 or not d.get("ok") or "ideas" not in d:
+            errors.append(f"best: /api/best не отдал кэш ({d})")
+        if not d.get("updated_at"):
+            errors.append("best: /api/best без updated_at")
+        if dt > 2.0:
+            errors.append(f"best: /api/best дольше 2с ({dt:.2f}s)")
+        for it in d.get("ideas", []):
+            if it["score"] < 70 or it["risk_gate"] != "PASS":
+                errors.append("best: в /api/best идея ниже порога/без PASS")
+
+        # Пустой список -> честный текст, а не выдумки.
+        best_setups._CACHE.update({"data": {"ideas": [], "scanned": 3, "passed": 0,
+                                            "updated_at": "2026-01-01T00:00:00+00:00"}})
+        de = await (await client.get("/api/best")).json()
+        if de.get("ideas") != [] or not de.get("empty_text"):
+            errors.append(f"best: пустой список без честного текста ({de})")
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"best: упал — {exc!r}")
+    finally:
+        if client is not None:
+            await client.close()
+        (best_setups.scan, best_setups.score_entry, best_setups.plan_exit,
+         best_setups.skeptic, best_setups.AUTO_REFRESH) = saved
+        best_setups._CACHE.update(saved_cache)
+
+    if len(errors) == before:
+        print(f"  {OK} фильтр (≥70 + скептик 5/5 + риск-гейт PASS); /api/best warming→кэш <2с; пустой — честный текст")
+
+
 def _check_index_html(errors: list[str]) -> None:
-    """index.html: 15 экранов и нет захардкоженных цен из мокапов."""
-    print("\n— Проверяю index.html (15 экранов, без хардкода цен) …")
+    """index.html: 16 экранов (с Топ-идеями) и нет захардкоженных цен из мокапов."""
+    print("\n— Проверяю index.html (16 экранов, без хардкода цен) …")
     before = len(errors)
     root = os.path.dirname(os.path.abspath(__file__))
     with open(os.path.join(root, "miniapp", "index.html"), encoding="utf-8") as fh:
         html = fh.read()
 
     screens = html.count('class="screen')
-    if screens != 15:
-        errors.append(f"index.html: экранов {screens}, ожидалось 15")
+    if screens != 16:
+        errors.append(f"index.html: экранов {screens}, ожидалось 16")
+    if 's-best' not in html:
+        errors.append("index.html: нет экрана Топ-идей (s-best)")
 
     forbidden_nums = ["67,428", "67428", "2,654", "164.82", "164,82",
                       "67,000", "67000", "66,912", "65,873", "62,418"]
@@ -1433,7 +1527,7 @@ def _check_index_html(errors: list[str]) -> None:
     if "Не финансовый совет. Наблюдения, не рекомендации" not in html:
         errors.append("index.html: нет футер-дисклеймера")
     if len(errors) == before:
-        print(f"  {OK} экранов 15, захардкоженных цен нет, дисклеймер на месте")
+        print(f"  {OK} экранов 16, захардкоженных цен нет, дисклеймер на месте")
 
 
 async def _check_paper_limit_no_network(errors: list[str]) -> None:
@@ -1571,6 +1665,7 @@ async def _run() -> int:
     errors: list[str] = []
     # В тестах фоновый пересчёт кэша не нужен (управляем вручную).
     miniapp_server.AUTO_REFRESH = False
+    best_setups.AUTO_REFRESH = False
 
     for symbol, timeframe in pairs:
         print(f"\n— Проверяю {symbol} ({timeframe}) …")
@@ -1615,6 +1710,7 @@ async def _run() -> int:
     _check_scan_scoring(errors)
     await _check_new_apis(errors)
     await _check_detail_apis(errors)
+    await _check_best_setups(errors)
     _check_index_html(errors)
     _check_autopush(errors)
 
