@@ -50,7 +50,9 @@ from agents.journal_agent import (
     stats,
 )
 import miniapp.server as miniapp_server
+from agents.market_index import compute as mi_compute
 from agents.news_agent import get_crypto_news
+from agents.scanner_agent import score_setup
 from agents.paper_agent import (
     close_position,
     get_balance,
@@ -1157,6 +1159,119 @@ async def _check_limit_orders(errors: list[str]) -> None:
         print(f"  {OK} paper: касание исполняет, отмена работает; live без стопа/тапа не уходит")
 
 
+def _check_market_index_math(errors: list[str]) -> None:
+    """Индекс рынка: compute даёт value 0–100 и три компонента."""
+    print("\n— Проверяю индекс рынка (формула) …")
+    before = len(errors)
+    metrics = [
+        {"price": 110, "ema50": 100, "rsi": 60, "vol_24h": 150, "avg_vol_20": 100},
+        {"price": 90, "ema50": 100, "rsi": 45, "vol_24h": 80, "avg_vol_20": 100},
+        {"price": 120, "ema50": 100, "rsi": 70, "vol_24h": 200, "avg_vol_20": 100},
+    ]
+    res = mi_compute(metrics)
+    if not (isinstance(res["value"], int) and 0 <= res["value"] <= 100):
+        errors.append(f"market_index: value вне [0,100] ({res['value']})")
+    comp = res.get("components", {})
+    for key in ("breadth", "momentum", "volume"):
+        if key not in comp:
+            errors.append(f"market_index: нет компонента '{key}'")
+    if not str(res.get("label", "")).strip():
+        errors.append("market_index: нет метки режима")
+    if len(errors) == before:
+        print(f"  {OK} value={res['value']} ({res['label']}); компоненты {comp}")
+
+
+def _check_scan_scoring(errors: list[str]) -> None:
+    """Скоринг сетапа: score находки равен сумме factors."""
+    print("\n— Проверяю скоринг сканера …")
+    before = len(errors)
+    m = {"side": "long", "price": 100, "ema20": 99, "ema50": 97, "ema200": 90,
+         "vol_ratio": 1.6, "rsi": 55, "atr": 2.0, "support": 96,
+         "resistance": 108, "structure": "bull flag"}
+    score, factors = score_setup(m)
+    if score != sum(f["points"] for f in factors):
+        errors.append(f"scan: score ({score}) != сумме factors")
+    if not (0 <= score <= 100):
+        errors.append(f"scan: score вне [0,100] ({score})")
+    for f in factors:
+        if f["points"] > f["max"]:
+            errors.append(f"scan: фактор {f['name']} превысил максимум")
+    if len(errors) == before:
+        print(f"  {OK} score={score} = сумме factors ({[f['points'] for f in factors]})")
+
+
+async def _check_new_apis(errors: list[str]) -> None:
+    """Эндпоинты /api/market_index и /api/scan отвечают 200 с валидным JSON (моки)."""
+    print("\n— Проверяю /api/market_index и /api/scan …")
+    from aiohttp.test_utils import TestClient, TestServer
+    before = len(errors)
+
+    async def fake_index(top_n=30):
+        return {"value": 60, "label": "Уверенность",
+                "components": {"breadth": 24.0, "momentum": 18.0, "volume": 18.0},
+                "updated_at": "2026-01-01T00:00:00+00:00", "pairs": 30}
+
+    async def fake_scan(timeframe="1h", top_n=30):
+        return [{"symbol": "BTCUSDT", "side": "long", "score": 70,
+                 "factors": [{"name": "Тренд", "points": 30, "max": 30}],
+                 "patterns": ["x"], "structure": "bull flag", "change_24h": 3.0,
+                 "price": 80000, "rsi": 55}]
+
+    saved = (miniapp_server.market_index, miniapp_server.scan)
+    miniapp_server.market_index = fake_index
+    miniapp_server.scan = fake_scan
+    client = None
+    try:
+        client = TestClient(TestServer(miniapp_server.create_app()))
+        await client.start_server()
+        r = await client.get("/api/market_index")
+        d = await r.json()
+        if r.status != 200 or not d.get("ok"):
+            errors.append(f"api: /api/market_index не 200/ok ({r.status})")
+        else:
+            idx = d["index"]
+            if not (0 <= idx["value"] <= 100):
+                errors.append("api: market_index value вне [0,100]")
+            if any(k not in idx["components"] for k in ("breadth", "momentum", "volume")):
+                errors.append("api: market_index без трёх компонентов")
+        r2 = await client.get("/api/scan")
+        d2 = await r2.json()
+        if r2.status != 200 or not d2.get("ok"):
+            errors.append(f"api: /api/scan не 200/ok ({r2.status})")
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"api: сервер упал — {exc!r}")
+    finally:
+        if client is not None:
+            await client.close()
+        miniapp_server.market_index, miniapp_server.scan = saved
+    if len(errors) == before:
+        print(f"  {OK} оба эндпоинта 200, value в [0,100], три компонента")
+
+
+def _check_index_html(errors: list[str]) -> None:
+    """index.html: 15 экранов и нет захардкоженных цен из мокапов."""
+    print("\n— Проверяю index.html (15 экранов, без хардкода цен) …")
+    before = len(errors)
+    root = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(root, "miniapp", "index.html"), encoding="utf-8") as fh:
+        html = fh.read()
+
+    screens = html.count('class="screen')
+    if screens != 15:
+        errors.append(f"index.html: экранов {screens}, ожидалось 15")
+
+    forbidden_nums = ["67,428", "67428", "2,654", "164.82", "164,82",
+                      "67,000", "67000", "66,912", "65,873", "62,418"]
+    for num in forbidden_nums:
+        if num in html:
+            errors.append(f"index.html: захардкоженное число из мокапа «{num}»")
+
+    if "Не финансовый совет. Наблюдения, не рекомендации" not in html:
+        errors.append("index.html: нет футер-дисклеймера")
+    if len(errors) == before:
+        print(f"  {OK} экранов 15, захардкоженных цен нет, дисклеймер на месте")
+
+
 async def _run() -> int:
     pairs = [("BTCUSDT", "1h"), ("ETHUSDT", "1h")]
     errors: list[str] = []
@@ -1199,6 +1314,10 @@ async def _run() -> int:
     await _check_deploy(errors)
     await _check_broker(errors)
     await _check_limit_orders(errors)
+    _check_market_index_math(errors)
+    _check_scan_scoring(errors)
+    await _check_new_apis(errors)
+    _check_index_html(errors)
 
     print()
     if errors:
