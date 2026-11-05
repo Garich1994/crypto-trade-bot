@@ -25,8 +25,13 @@ from agents.coordinator_agent import (
     due_subscriptions,
     mark_brief_sent,
 )
-from agents.paper_agent import run_paper_check
-from bot.formatting import format_alert_fired, format_brief, format_paper_closed
+from agents.paper_agent import run_limit_check, run_paper_check
+from bot.formatting import (
+    format_alert_fired,
+    format_brief,
+    format_paper_closed,
+    format_paper_limit_fill,
+)
 from bot.handlers import router
 from core.config import require_bot_token
 from miniapp import start_miniapp
@@ -52,7 +57,15 @@ async def _alerts_loop(bot: Bot) -> None:
                     )
                 except Exception:
                     logging.exception("Не удалось отправить уведомление подписки")
-            # 2) Автозакрытие виртуальных позиций по стоп/тейк.
+            # 2) Исполнение лимитных ордеров (paper) по касанию цены.
+            for event in await run_limit_check():
+                try:
+                    await bot.send_message(
+                        event["user_id"], format_paper_limit_fill(event)
+                    )
+                except Exception:
+                    logging.exception("Не удалось отправить уведомление лимитного ордера")
+            # 3) Автозакрытие виртуальных позиций по стоп/тейк.
             for event in await run_paper_check():
                 try:
                     await bot.send_message(

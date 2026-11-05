@@ -458,6 +458,19 @@ def format_brief(brief: dict, auto: bool = False) -> str:
     return "\n".join(lines)
 
 
+def format_paper_limit_fill(event: dict) -> str:
+    """Собрать уведомление об исполнении лимитного ордера (paper)."""
+    side = "покупка" if event["side"] == "buy" else "продажа"
+    base = (
+        f"🧪 Лимитный ордер №{event['orderId']} исполнен: {side} "
+        f"{event['symbol']} · {_fmt_qty(event['qty'])} по {_fmt_price(event['fill_price'])}"
+    )
+    closed = event.get("closed")
+    if closed:
+        base += f"\nPnL: {closed['pnl_usdt']:+.2f} USDT ({closed['pnl_pct']:+.2f}%)"
+    return base + "\n\n" + PAPER_TAG
+
+
 def _cond_phrase(condition_type: str, threshold: float) -> str:
     """Человекочитаемое описание условия подписки."""
     if condition_type == "price_above":

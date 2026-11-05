@@ -24,7 +24,10 @@ from agents.alerts_agent import (
 from agents.backtest_agent import BacktestError, backtest
 from agents.broker_agent import (
     BrokerError,
+    cancel_order,
     confirm_order,
+    list_orders,
+    place_limit_order,
     place_order,
     set_mode as broker_set_mode,
     status as broker_status,
@@ -133,7 +136,9 @@ START_TEXT = (
     "• /autobrief on [часы] | off — авторассылка брифа каждые N часов (по умолчанию 4)\n"
     "• /dashboard — ссылка на веб-дашборд (демо на этом ПК)\n"
     "• /broker — режим исполнения (paper/testnet/live); /broker testnet|paper — переключить\n"
-    "• /buy ПАРА объём [стоп] [тейк] · /sell … — ордер (в live — с подтверждением)\n"
+    "• /buy ПАРА объём [стоп] [тейк] · /sell … — маркет-ордер (в live — с подтверждением)\n"
+    "• /buylimit ПАРА объём цена стоп [тейк] · /selllimit … — лимитный ордер\n"
+    "• /orders — открытые лимитные ордера · /cancelorder id [ПАРА] — отмена\n"
     "• /killswitch — мгновенно заблокировать testnet/live\n\n"
     "ℹ️ Сторож (подписки) работает только пока запущен этот бот.\n"
     "🧪 Paper-режим строго виртуальный: без ключей биржи и без реальных ордеров.\n\n"
@@ -840,6 +845,119 @@ async def cmd_killswitch(message: Message) -> None:
     )
 
 
+async def _broker_limit(message: Message, command: CommandObject, side: str) -> None:
+    cmd = "buylimit" if side == "buy" else "selllimit"
+    args = (command.args or "").split()
+    if len(args) < 4:
+        await message.answer(
+            f"Формат: /{cmd} ПАРА объём цена стоп [тейк]\n"
+            f"Пример: /{cmd} BTCUSDT 0.01 65000 63000 70000"
+        )
+        return
+    symbol = args[0].upper()
+    try:
+        qty = float(args[1].replace(",", "."))
+        price = float(args[2].replace(",", "."))
+        stop = float(args[3].replace(",", "."))
+        take = float(args[4].replace(",", ".")) if len(args) > 4 else None
+    except ValueError:
+        await message.answer("Объём, цена, стоп и тейк должны быть числами.")
+        return
+
+    try:
+        res = await place_limit_order(_user_id(message), symbol, side, qty, price, stop, take)
+    except (BrokerError, DataAgentError) as exc:
+        await message.answer(f"Не получилось: {exc}")
+        return
+    except Exception:
+        logger.exception("Непредвиденная ошибка в /%s", cmd)
+        await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+        return
+
+    st = res["status"]
+    if st == "blocked":
+        await message.answer(f"⛔ Ордер не выставлен: {res['reason']}")
+    elif st == "needs_confirmation":
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"brk:{res['token']}"),
+            InlineKeyboardButton(text="Отмена", callback_data="brk:cancel"),
+        ]])
+        await message.answer(
+            f"🔴 {res['warning']}\n\n"
+            f"ЛИМИТ {side.upper()} {res['symbol']} · {res['qty']} по {res['price']} "
+            f"(сумма {res['amount']:.2f})\nНажми «Подтвердить», чтобы выставить ордер.",
+            reply_markup=kb,
+        )
+    else:  # placed
+        await message.answer(
+            f"✅ Лимитный ордер выставлен ({res['mode']}): {side.upper()} {res['symbol']} "
+            f"· {res['qty']} по {res['limit_price']} (сумма {res['amount']:.2f})\n"
+            f"orderId: {res['orderId']}"
+        )
+
+
+@router.message(Command("buylimit"))
+async def cmd_buylimit(message: Message, command: CommandObject) -> None:
+    await _broker_limit(message, command, "buy")
+
+
+@router.message(Command("selllimit"))
+async def cmd_selllimit(message: Message, command: CommandObject) -> None:
+    await _broker_limit(message, command, "sell")
+
+
+@router.message(Command("orders"))
+async def cmd_orders(message: Message) -> None:
+    try:
+        res = await list_orders(_user_id(message))
+    except (BrokerError, DataAgentError) as exc:
+        await message.answer(f"Не получилось: {exc}")
+        return
+    except Exception:
+        logger.exception("Непредвиденная ошибка в /orders")
+        await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+        return
+
+    orders = res.get("orders") or []
+    if not orders:
+        await message.answer(f"Открытых лимитных ордеров нет ({res['mode']}).")
+        return
+    lines = [f"📋 Лимитные ордера ({res['mode']}):", ""]
+    for o in orders:
+        lines.append(
+            f"№{o['orderId']} · {o['symbol']} · {str(o['side']).upper()} "
+            f"{o['qty']} по {o['price']}"
+        )
+    lines.append("\nОтмена: /cancelorder id [ПАРА]")
+    await message.answer("\n".join(lines))
+
+
+@router.message(Command("cancelorder"))
+async def cmd_cancelorder(message: Message, command: CommandObject) -> None:
+    args = (command.args or "").split()
+    if not args:
+        await message.answer("Формат: /cancelorder id [ПАРА]\nПример: /cancelorder 3")
+        return
+    try:
+        order_id = int(args[0])
+    except ValueError:
+        await message.answer("id ордера — целое число.")
+        return
+    symbol = args[1].upper() if len(args) > 1 else None
+
+    try:
+        res = await cancel_order(_user_id(message), order_id, symbol)
+    except (BrokerError, DataAgentError) as exc:
+        await message.answer(f"Не получилось: {exc}")
+        return
+    except Exception:
+        logger.exception("Непредвиденная ошибка в /cancelorder")
+        await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+        return
+
+    await message.answer(f"🗑 Лимитный ордер №{res['orderId']} отменён ({res['mode']}).")
+
+
 @router.callback_query(F.data.startswith("brk:"))
 async def cb_broker_confirm(callback: CallbackQuery) -> None:
     token = callback.data.split(":", 1)[1]
@@ -862,10 +980,17 @@ async def cb_broker_confirm(callback: CallbackQuery) -> None:
         return
 
     if res["status"] == "executed":
-        await callback.message.edit_text(
-            f"✅ Ордер исполнен (live): {res['side'].upper()} {res['symbol']} "
-            f"{res['qty']} по {res['price']}."
-        )
+        if res.get("order_type") == "limit":
+            await callback.message.edit_text(
+                f"✅ Лимитный ордер выставлен (live): {res['side'].upper()} "
+                f"{res['symbol']} {res['qty']} по {res['limit_price']} "
+                f"(orderId: {res.get('orderId')})."
+            )
+        else:
+            await callback.message.edit_text(
+                f"✅ Ордер исполнен (live): {res['side'].upper()} {res['symbol']} "
+                f"{res['qty']} по {res['price']}."
+            )
     else:
         await callback.message.edit_text(f"⛔ {res.get('reason', 'ордер не отправлен')}")
     await callback.answer()
