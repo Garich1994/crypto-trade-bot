@@ -15,7 +15,9 @@ from aiohttp import web
 from agents.coordinator_agent import build_brief
 from agents.data_agent import get_klines, get_ticker_24h
 from agents.journal_agent import stats as journal_stats
+from agents.market_index import market_index
 from agents.paper_agent import portfolio as paper_portfolio
+from agents.scanner_agent import scan
 from agents.whale_agent import get_whales
 
 _INDEX = Path(__file__).resolve().parent / "index.html"
@@ -67,6 +69,22 @@ async def api_market(request: web.Request) -> web.Response:
         return _resp({"ok": False, "error": str(exc)})
 
 
+async def api_market_index(request: web.Request) -> web.Response:
+    try:
+        return _resp({"ok": True, "index": await market_index()})
+    except Exception as exc:  # noqa: BLE001
+        return _resp({"ok": False, "error": str(exc)})
+
+
+async def api_scan(request: web.Request) -> web.Response:
+    try:
+        tf = request.query.get("tf", "1h")
+        findings = await scan(timeframe=tf, top_n=30)
+        return _resp({"ok": True, "findings": findings})
+    except Exception as exc:  # noqa: BLE001
+        return _resp({"ok": False, "error": str(exc)})
+
+
 async def api_brief(request: web.Request) -> web.Response:
     try:
         brief = await build_brief(top=3)
@@ -105,6 +123,8 @@ def create_app() -> web.Application:
     app.router.add_get("/", index)
     app.router.add_get("/healthz", healthz)
     app.router.add_get("/api/market", api_market)
+    app.router.add_get("/api/market_index", api_market_index)
+    app.router.add_get("/api/scan", api_scan)
     app.router.add_get("/api/brief", api_brief)
     app.router.add_get("/api/whales", api_whales)
     app.router.add_get("/api/journal/{user_id}", api_journal)
