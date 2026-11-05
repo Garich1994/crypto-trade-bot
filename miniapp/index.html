@@ -529,13 +529,13 @@ async function loadOverview(){
   el.innerHTML=coins.length?coins.map(c=>`<div class="coin"><div class="s">${c.symbol.replace('USDT','')}/USDT</div>
     <div class="p">$${fmt(c.price)}</div><div class="c ${(c.change24h||0)>=0?'up':'down'}">${pct(c.change24h)}</div><div class="spk">${spark(c.spark)}</div></div>`).join(''):'<div class="muted">Рынок недоступен.</div>';
   const x=await J('/api/market_index'); const hint=document.getElementById('ov-hint'); const base='Широта + импульс + объём. Режим рынка, не прогноз.';
-  if(x.warming){ document.getElementById('ov-gauge').innerHTML=gauge(0); document.getElementById('ov-idx').textContent='⏳ считаем, обновите через минуту'; hint.textContent=base; setMiPill(null); }
+  if(x.warming){ document.getElementById('ov-gauge').innerHTML=gauge(0); document.getElementById('ov-idx').textContent='⏳ считается…'; hint.textContent=base; setMiPill(null); }
   else if(x.ok&&x.index){ const i=x.index; document.getElementById('ov-gauge').innerHTML=gauge(i.value);
     document.getElementById('ov-idx').innerHTML=`${i.value}/100 <span class="tag gold">${i.label}</span>`;
     document.getElementById('ov-breadth').textContent=i.components.breadth; document.getElementById('ov-mom').textContent=i.components.momentum; document.getElementById('ov-vol').textContent=i.components.volume;
     hint.textContent=base+(x.updated_at?' · '+agoMin(x.updated_at):''); setMiPill(i); }
   const b=await J('/api/brief'); const obs=document.getElementById('ov-obs');
-  if(b.warming){ obs.innerHTML='<li class="muted">⏳ сводка считается, обновите через минуту.</li>'; }
+  if(b.warming){ obs.innerHTML='<li class="muted">⏳ сводка считается…</li>'; }
   else if(b.ok&&b.brief){ const br=b.brief,ideas=br.ideas||[]; const it=[['Рынок: '+br.market_summary,'s-scanner'],['Идей после риск-гейта: '+ideas.length,'s-coordinator'],['Отсеяно по риску: '+((br.filtered_out||[]).length),'s-coordinator'],['Новостей: '+((br.news||[]).length),'s-coordinator']];
     obs.innerHTML=it.map((t,i)=>`<li onclick="go('${t[1]}')"><span class="dotc" style="background:${['#0ecb81','#0ecb81','#e8b33d','#4a9eff'][i]}"></span>${t[0]}</li>`).join('');
   } else obs.innerHTML='<li class="muted">Сводка недоступна.</li>';
@@ -558,12 +558,11 @@ async function loadOverview(){
 
 /* ===== scanner (sortable table + filters) ===== */
 function scanPred(f,filter){
-  const st=(f.structure||'').toLowerCase();
   if(filter==='all')return true;
-  if(filter==='pattern')return !!f.structure;
-  if(filter==='breakout')return st.includes('breakout')||st.includes('пробо')||st.includes('reclaim');
-  if(filter==='volume')return (f.vol_ratio||0)>=1.5;
-  if(filter==='rsi')return (f.rsi!=null)&&(f.rsi<=35||f.rsi>=65);
+  if(filter==='rsi')return (f.rsi!=null)&&(f.rsi<30);              // только перепроданность
+  if(filter==='pattern')return !!f.structure;                      // распознан паттерн (поле structure)
+  if(filter==='breakout')return !!f.breakout;                      // пробой (флаг breakout)
+  if(filter==='volume')return (f.vol_ratio||0)>=1.5;               // всплеск объёма
   return true;
 }
 function sortScan(key){ if(STATE.scanSort.key===key)STATE.scanSort.dir*=-1; else STATE.scanSort={key,dir:(key==='symbol'?1:-1)}; renderScanList(); }
@@ -584,9 +583,11 @@ function renderScanList(){
     <th class="num hide-m" onclick="sortScan('vol_ratio')">Объём ${ar('vol_ratio')}</th>
     <th class="hide-m">Структура</th>
     <th class="num" onclick="sortScan('score')">Сила ${ar('score')}</th></tr></thead><tbody>`;
-  h+=list.map(f=>{const idx=STATE.findings.indexOf(f);return `<tr class="row" onclick="selectFinding(${idx})">
+  h+=list.map(f=>{const idx=STATE.findings.indexOf(f);
+    const mini=(f.spark&&f.spark.length>1)?spark(f.spark,72,26):'<span class="muted">—</span>';
+    return `<tr class="row" onclick="selectFinding(${idx})">
     <td><b>${f.symbol}</b> <span class="muted">${sideRu(f.side)}</span></td>
-    <td class="hide-m" id="mini-${idx}"></td>
+    <td class="hide-m">${mini}</td>
     <td class="num">${fmt(f.price)}</td>
     <td class="num ${(f.change_24h||0)>=0?'up':'down'}">${pct(f.change_24h)}</td>
     <td class="num">${f.rsi!=null?f.rsi.toFixed(0):'—'}</td>
@@ -594,12 +595,10 @@ function renderScanList(){
     <td class="hide-m"><span class="badge">${f.structure||(f.patterns&&f.patterns[0])||'—'}</span></td>
     <td class="num"><span class="sv">${f.score}</span></td></tr>`;}).join('');
   el.innerHTML=h+'</tbody></table></div>';
-  list.forEach(async f=>{const idx=STATE.findings.indexOf(f);const k=await J('/api/klines?symbol='+f.symbol+'&tf=1h&limit=30');const box=document.getElementById('mini-'+idx);
-    if(box&&k.ok&&k.candles){ box.innerHTML=spark(k.candles.map(c=>c[4]),72,26); }});
 }
 async function loadScan(){
   const d=await J('/api/scan'); const el=document.getElementById('sc-list');
-  if(d.warming){ setAgo('sc-upd',null); el.innerHTML='<div class="muted">⏳ считаем, обновите через минуту.</div>'; return; }
+  if(d.warming){ setAgo('sc-upd',null); el.innerHTML='<div class="muted">⏳ считается…</div>'; return; }
   if(!d.ok){ el.innerHTML='<div class="muted">Сканер недоступен.</div>'; return; }
   STATE.findings=d.findings||[]; setAgo('sc-upd',d.updated_at);
   if(!STATE.findings.length){ el.innerHTML='<div class="muted">Ярких наблюдений нет.</div>'; return; }
@@ -640,7 +639,7 @@ function renderBest(){
 async function loadBest(){
   const el=document.getElementById('bt-list');
   const d=await J('/api/best');
-  if(d.warming){ setAgo('bt-upd',null); el.innerHTML='<div class="muted">⏳ ищем лучшие сетапы, обновите через минуту.</div>'; return; }
+  if(d.warming){ setAgo('bt-upd',null); el.innerHTML='<div class="muted">⏳ ищем лучшие сетапы…</div>'; return; }
   if(!d.ok){ el.innerHTML='<div class="muted">Недоступно.</div>'; return; }
   STATE.bestIdeas=d.ideas||[]; setAgo('bt-upd',d.updated_at);
   renderBest();
@@ -797,9 +796,13 @@ async function loadWhale(){
   if(STATE.symbol!==sym) return;
   if(!d.ok||!d.whales){ el.innerHTML='<div class="muted">Недоступно.</div>'; return; }
   const w=d.whales,top=w.top||[];
-  let h=`<div class="r"><span class="muted">${w.symbol} · давление</span><span class="v">${w.pressure}</span></div>
-    <div class="r"><span class="muted">Крупных сделок</span><span class="v">${w.whale_count!=null?w.whale_count:'—'}</span></div>`;
-  el.innerHTML=h+(top.length?top.map(t=>`<div class="whalerow"><span class="${t.side==='buy'?'up':'down'}">${t.side==='buy'?'покупка':'продажа'}</span><span class="v">$${fmt(t.price)} · ~${(t.notional/1e6).toFixed(1)}M</span></div>`).join(''):'<div class="whalerow"><span class="muted">Крупных сделок в окне нет. Наблюдения, не рекомендация.</span></div>');
+  if(!top.length||(w.whale_count!=null&&w.whale_count===0)){
+    el.innerHTML=`<div class="muted">${w.symbol}: давление — нет китовых сделок в окне. Наблюдения, не рекомендация.</div>`;
+    return;
+  }
+  let h=`<div class="rows"><div class="r"><span class="muted">${w.symbol} · давление</span><span class="v">${w.pressure}</span></div>
+    <div class="r"><span class="muted">Крупных сделок</span><span class="v">${w.whale_count!=null?w.whale_count:'—'}</span></div></div>`;
+  el.innerHTML=h+top.map(t=>`<div class="whalerow"><span class="${t.side==='buy'?'up':'down'}">${t.side==='buy'?'покупка':'продажа'}</span><span class="v">$${fmt(t.price)} · ~${(t.notional/1e6).toFixed(1)}M</span></div>`).join('');
 }
 async function loadSkeptic(){
   document.getElementById('sk-sym').textContent=STATE.symbol+' · '+sideRu(STATE.side);
@@ -817,7 +820,7 @@ async function loadSkeptic(){
 }
 async function loadCoordinator(){
   const b=await J('/api/brief'),co=document.getElementById('co-body');
-  if(b.warming){ co.innerHTML='<div class="muted">⏳ автодайджест считается, обновите через минуту.</div>'; }
+  if(b.warming){ co.innerHTML='<div class="muted">⏳ автодайджест считается…</div>'; }
   else if(b.ok&&b.brief){ const br=b.brief,ideas=br.ideas||[];
     co.innerHTML=`<div class="muted" style="font-size:13px;margin-bottom:10px">🤖 Автодайджест. Наблюдения, не рекомендации.${b.updated_at?' · '+agoMin(b.updated_at):''}</div>
       <div class="chk"><span class="muted">Ситуаций найдено</span><span class="pass">${br.scanned??ideas.length}</span></div>
