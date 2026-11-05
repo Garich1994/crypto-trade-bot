@@ -181,6 +181,7 @@
   <aside class="sidebar">
     <div class="logo"><svg class="mono" viewBox="0 0 32 32" fill="none"><rect x="1" y="1" width="30" height="30" rx="8" stroke="#e8b33d" stroke-width="1.5"/><path d="M7 21l5-6 4 3 7-9" stroke="#e8b33d" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="23" cy="9" r="2" fill="#e8b33d"/></svg><span>Crypto<span class="b">Pilot</span></span></div>
     <div class="nav-item on" data-s="s-overview"><span class="ni">🏠</span>Обзор</div>
+    <div class="nav-item" data-s="s-best"><span class="ni">💡</span>Топ-идеи</div>
     <div class="nav-item" data-s="s-scanner"><span class="ni">🔍</span>Сканер</div>
     <div class="nav-item" data-s="s-ta"><span class="ni">📊</span>Аналитика</div>
     <div class="nav-item" data-s="s-entry"><span class="ni">⏱</span>Вход</div>
@@ -228,10 +229,22 @@
         <button class="cta" style="margin-top:10px" onclick="go('s-scanner')">🔍 Открыть сканер</button></div>
     </div>
     <div class="g3" style="margin-top:16px">
-      <div class="card wdg" onclick="go('s-scanner')"><div class="h2">Топ-3 сканера</div><div id="ov-top3"><div class="muted">Загрузка…</div></div></div>
+      <div class="card wdg glow" onclick="go('s-best')"><div class="h2">💡 Топ-3 идеи</div><div id="ov-best"><div class="muted">Загрузка…</div></div></div>
       <div class="card wdg" onclick="go('s-alerts')"><div class="h2">Последний алерт</div><div id="ov-alert"><div class="muted">—</div></div></div>
       <div class="card wdg" onclick="go('s-paper')"><div class="h2">Paper-баланс</div><div id="ov-paper"><div class="muted">—</div></div></div>
     </div>
+  </section>
+
+  <!-- ТОП-ИДЕИ -->
+  <section class="screen" id="s-best" data-title="Топ-идеи">
+    <div class="shead"><div class="ic">💡</div><div><h1>Топ-идеи</h1><div class="sub">Автономный поиск лучших сетапов</div></div></div>
+    <div class="srcnote">Лучшие сетапы по правилам (скоринг ≥70, скептик не против, риск-гейт PASS). Это наблюдения, не рекомендации. Не финансовый совет.</div>
+    <div class="chips" id="bt-chips">
+      <span class="chip on" data-f="all">Все</span><span class="chip" data-f="long">Лонг</span><span class="chip" data-f="short">Шорт</span>
+      <span style="margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted)">мин. скоринг
+        <input id="bt-min" type="range" min="70" max="95" step="5" value="70" style="accent-color:var(--gold)"><span id="bt-minv" class="gold" style="font-weight:700">70</span></span>
+    </div>
+    <div class="card"><div id="bt-upd" class="muted" style="font-size:11.5px;margin-bottom:10px"></div><div id="bt-list"><div class="muted">Загрузка…</div></div></div>
   </section>
 
   <!-- 2. СКАНЕР -->
@@ -409,7 +422,7 @@ let UID = TG_UID || savedUid();
 let GUEST = !UID;
 let CFG = {bot_username:'', version:''};
 
-const STATE={symbol:'BTCUSDT',side:'long',entry:null,tf:'1h',finding:null,findings:[],exitMult:'1.5',scanFilter:'all',scanSort:{key:'score',dir:-1}};
+const STATE={symbol:'BTCUSDT',side:'long',entry:null,tf:'1h',finding:null,findings:[],exitMult:'1.5',scanFilter:'all',scanSort:{key:'score',dir:-1},bestIdeas:[],bestFilter:'all',bestMin:70};
 const fmt=n=>(n==null?'—':(Math.abs(n)>=1000?Number(n).toLocaleString('ru-RU',{maximumFractionDigits:2}):(Math.abs(n)>=1?Number(n).toFixed(2):Number(n).toPrecision(4))));
 const pct=n=>(n==null?'н/д':(n>=0?'+':'')+Number(n).toFixed(2)+'%');
 const sideRu=s=>s==='long'?'лонг':'шорт';
@@ -474,7 +487,7 @@ document.querySelectorAll('.nav-item,.tab').forEach(t=>t.onclick=()=>go(t.datase
 document.getElementById('back').onclick=()=>go(STATE.finding?'s-scanner':'s-overview');
 
 const LOADERS={
-  's-overview':loadOverview,'s-scanner':loadScan,'s-pattern':()=>renderPattern(STATE.finding),
+  's-overview':loadOverview,'s-best':loadBest,'s-scanner':loadScan,'s-pattern':()=>renderPattern(STATE.finding),
   's-ta':loadTA,'s-journal':loadJournal,'s-timemachine':loadTM,'s-entry':loadEntry,'s-exit':loadExit,
   's-budget':loadBudget,'s-risk':loadRisk,'s-paper':loadPaper,'s-whale':loadWhale,'s-skeptic':loadSkeptic,
   's-coordinator':loadCoordinator,'s-alerts':loadAlerts
@@ -526,11 +539,14 @@ async function loadOverview(){
   else if(b.ok&&b.brief){ const br=b.brief,ideas=br.ideas||[]; const it=[['Рынок: '+br.market_summary,'s-scanner'],['Идей после риск-гейта: '+ideas.length,'s-coordinator'],['Отсеяно по риску: '+((br.filtered_out||[]).length),'s-coordinator'],['Новостей: '+((br.news||[]).length),'s-coordinator']];
     obs.innerHTML=it.map((t,i)=>`<li onclick="go('${t[1]}')"><span class="dotc" style="background:${['#0ecb81','#0ecb81','#e8b33d','#4a9eff'][i]}"></span>${t[0]}</li>`).join('');
   } else obs.innerHTML='<li class="muted">Сводка недоступна.</li>';
-  // widgets
-  const sc=await J('/api/scan'); const t3=document.getElementById('ov-top3');
-  if(sc.ok&&sc.findings&&sc.findings.length){ STATE.findings=sc.findings;
-    t3.innerHTML=sc.findings.slice(0,3).map((f,i)=>`<div class="chk"><span>${f.symbol} · ${sideRu(f.side)}</span><span class="sv">${f.score}/100</span></div>`).join('');
-  } else t3.innerHTML=sc.warming?'<div class="muted">⏳ считаем…</div>':'<div class="muted">нет данных</div>';
+  // держим findings сканера для детальных карточек Топ-идей
+  const sc=await J('/api/scan'); if(sc.ok&&sc.findings) STATE.findings=sc.findings;
+  // widget: Топ-3 идеи из /api/best
+  const bw=document.getElementById('ov-best'); const bb=await J('/api/best');
+  if(bb.warming){ bw.innerHTML='<div class="muted">⏳ ищем сетапы…</div>'; }
+  else if(bb.ok&&bb.ideas&&bb.ideas.length){ STATE.bestIdeas=bb.ideas;
+    bw.innerHTML=bb.ideas.slice(0,3).map((d,i)=>`<div class="chk" style="cursor:pointer" onclick="event.stopPropagation();selectBest(${i})"><span>${d.pair} · ${sideRu(d.side)}</span><span class="sv">${d.score}/100</span></div>`).join('');
+  } else bw.innerHTML='<div class="muted">Сильных сетапов по правилам сейчас нет.</div>';
   const alEl=document.getElementById('ov-alert');
   if(GUEST){ alEl.innerHTML='<div class="muted">войдите, чтобы видеть</div>'; }
   else { const a=await J('/api/alerts/'+UID); const list=(a.ok&&a.alerts)?a.alerts:[];
@@ -599,6 +615,46 @@ function selectFinding(i){
   STATE.finding=f; STATE.symbol=f.symbol; STATE.side=f.side; STATE.entry=f.price; STATE.tf='1h'; STATE.exitMult='1.5';
   go('s-pattern');
 }
+/* ===== Топ-идеи ===== */
+function bestPred(d){ if(STATE.bestFilter!=='all'&&d.side!==STATE.bestFilter)return false; if(d.score<STATE.bestMin)return false; return true; }
+function renderBest(){
+  const el=document.getElementById('bt-list');
+  if(!STATE.bestIdeas.length){ el.innerHTML='<div class="muted">Сильных сетапов по правилам сейчас нет.</div>'; return; }
+  const list=STATE.bestIdeas.filter(bestPred);
+  if(!list.length){ el.innerHTML='<div class="muted">По этому фильтру идей нет.</div>'; return; }
+  el.innerHTML='<div class="g2">'+list.map(d=>{const idx=STATE.bestIdeas.indexOf(d);return `<div class="card" style="cursor:pointer;margin:0" onclick="selectBest(${idx})">
+    <div style="display:flex;align-items:center;gap:14px">
+      <div style="flex:0 0 72px">${gauge(d.score,72)}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:800;font-size:16px">${d.pair} · <span class="${d.side==='long'?'up':'down'}">${sideRu(d.side)}</span></div>
+        <div class="muted" style="font-size:12px">${d.pattern||'—'} · RSI ${d.rsi!=null?Math.round(d.rsi):'—'}</div>
+        <div style="margin-top:5px"><span class="badge">скептик ${d.skeptic.passed}/${d.skeptic.total}</span> <span class="badge">риск-гейт ${d.risk_gate}</span></div>
+      </div></div>
+    <div class="lvls" style="margin-top:12px">
+      <div class="lvl"><div class="k">Вход</div><div class="v">${fmt(d.entry)}</div></div>
+      <div class="lvl"><div class="k">Стоп</div><div class="v down">${fmt(d.stop)}</div></div>
+      <div class="lvl"><div class="k">Тейк1</div><div class="v up">${fmt(d.take1)}</div></div>
+      <div class="lvl"><div class="k">R:R</div><div class="v">${d.rr1.toFixed(2)}</div></div>
+    </div></div>`;}).join('')+'</div>';
+}
+async function loadBest(){
+  const el=document.getElementById('bt-list');
+  const d=await J('/api/best');
+  if(d.warming){ setAgo('bt-upd',null); el.innerHTML='<div class="muted">⏳ ищем лучшие сетапы, обновите через минуту.</div>'; return; }
+  if(!d.ok){ el.innerHTML='<div class="muted">Недоступно.</div>'; return; }
+  STATE.bestIdeas=d.ideas||[]; setAgo('bt-upd',d.updated_at);
+  renderBest();
+}
+function selectBest(i){
+  const d=STATE.bestIdeas[i]; if(!d)return;
+  let f=(STATE.findings||[]).find(x=>x.symbol===d.pair);
+  f=f?Object.assign({},f,{side:d.side,price:d.entry}):{symbol:d.pair,side:d.side,price:d.entry,score:d.score,structure:d.pattern,patterns:[d.pattern],factors:[]};
+  STATE.finding=f; STATE.symbol=d.pair; STATE.side=d.side; STATE.entry=d.entry; STATE.tf='1h'; STATE.exitMult='1.5';
+  go('s-pattern');
+}
+document.querySelectorAll('#bt-chips .chip').forEach(c=>c.onclick=()=>{document.querySelectorAll('#bt-chips .chip').forEach(x=>x.classList.remove('on'));c.classList.add('on');STATE.bestFilter=c.dataset.f;renderBest();});
+(function(){const m=document.getElementById('bt-min');if(m)m.oninput=()=>{STATE.bestMin=+m.value;document.getElementById('bt-minv').textContent=m.value;renderBest();};})();
+
 async function renderPattern(f){
   if(!f){ document.getElementById('pt-title').textContent='Выберите пару в сканере'; return; }
   const sym=f.symbol;
@@ -783,6 +839,9 @@ async function loadAlerts(){
 function tickClock(){ const el=document.getElementById('hdr-clock'); if(el) el.textContent=new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
 function refreshAgo(){ document.querySelectorAll('[data-ts]').forEach(el=>{ el.textContent=agoMin(el.dataset.ts); }); }
 setInterval(tickClock,1000); setInterval(refreshAgo,60000);
+/* автообновление Топ-идей каждые 5 минут (на активном экране) */
+setInterval(()=>{ const a=document.getElementById('s-best'); if(a&&a.classList.contains('active'))loadBest();
+  const o=document.getElementById('s-overview'); if(o&&o.classList.contains('active'))loadOverview(); },300000);
 
 /* init */
 (async function init(){
