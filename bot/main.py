@@ -19,6 +19,7 @@ for _stream in (sys.stdout, sys.stderr):
 from aiogram import Bot, Dispatcher
 
 from agents.alerts_agent import run_check
+from agents.autopush_agent import run_push_cycle
 from agents.broker_agent import reset_killswitch_if_env
 from agents.coordinator_agent import (
     build_brief,
@@ -31,6 +32,7 @@ from bot.formatting import (
     format_brief,
     format_paper_closed,
     format_paper_limit_fill,
+    format_push,
 )
 from bot.handlers import router
 from core.config import require_bot_token
@@ -40,6 +42,8 @@ from miniapp import start_miniapp
 _ALERTS_INTERVAL = 120
 #: Период проверки подписок на автодайджест, секунды.
 _BRIEF_INTERVAL = 900
+#: Период проверки подписок на автопуш наблюдений, секунды.
+_PUSH_INTERVAL = 900
 
 
 async def _alerts_loop(bot: Bot) -> None:
@@ -97,6 +101,20 @@ async def _brief_loop(bot: Bot) -> None:
         await asyncio.sleep(_BRIEF_INTERVAL)
 
 
+async def _push_loop(bot: Bot) -> None:
+    """Фоновый автопуш сильных наблюдений подписчикам. Работает пока жив бот."""
+    while True:
+        try:
+            for event in await run_push_cycle():
+                try:
+                    await bot.send_message(event["user_id"], format_push(event["idea"]))
+                except Exception:
+                    logging.exception("Не удалось отправить автопуш")
+        except Exception:
+            logging.exception("Ошибка в цикле автопуша")
+        await asyncio.sleep(_PUSH_INTERVAL)
+
+
 async def main() -> None:
     token = require_bot_token()  # упадёт понятно, если токена нет
     bot = Bot(token=token)
@@ -111,6 +129,7 @@ async def main() -> None:
 
     alerts_task = asyncio.create_task(_alerts_loop(bot))  # Сторож
     brief_task = asyncio.create_task(_brief_loop(bot))    # Автодайджест
+    push_task = asyncio.create_task(_push_loop(bot))      # Автопуш наблюдений
 
     miniapp_runner = None
     try:
@@ -124,6 +143,7 @@ async def main() -> None:
     finally:
         alerts_task.cancel()
         brief_task.cancel()
+        push_task.cancel()
         if miniapp_runner is not None:
             await miniapp_runner.cleanup()
         await bot.session.close()

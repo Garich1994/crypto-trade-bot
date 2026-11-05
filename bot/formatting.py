@@ -458,6 +458,25 @@ def format_brief(brief: dict, auto: bool = False) -> str:
     return "\n".join(lines)
 
 
+def format_push(idea: dict) -> str:
+    """Собрать текст автопуша наблюдения."""
+    side_ru = _SIDE_RU.get(idea["side"], idea["side"])
+    score = idea.get("setup_score")
+    if score is None:
+        score = idea.get("score", "—")
+    factors = idea.get("setup_factors") or []
+    top2 = sorted(factors, key=lambda f: f.get("points", 0), reverse=True)[:2]
+    top_names = ", ".join(f["name"] for f in top2) if top2 else "—"
+    return (
+        f"🔔 {idea['symbol']} · {side_ru}\n"
+        f"Сила сетапа {score}/100 — {top_names}\n"
+        f"Вход {_fmt_price(idea['entry'])}, стоп {_fmt_price(idea['stop'])}, "
+        f"тейк {_fmt_price(idea['take1'])}\n"
+        f"Скептик: пройдено {idea['skeptic_passed']}/{idea['skeptic_total']}\n"
+        "Наблюдение, не рекомендация. Не финансовый совет."
+    )
+
+
 def format_paper_limit_fill(event: dict) -> str:
     """Собрать уведомление об исполнении лимитного ордера (paper)."""
     side = "покупка" if event["side"] == "buy" else "продажа"

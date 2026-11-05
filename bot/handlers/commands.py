@@ -21,6 +21,11 @@ from agents.alerts_agent import (
     list_alerts,
     remove_alert,
 )
+from agents.autopush_agent import (
+    AutopushError,
+    get_autopush,
+    set_autopush,
+)
 from agents.backtest_agent import BacktestError, backtest
 from agents.broker_agent import (
     BrokerError,
@@ -134,6 +139,7 @@ START_TEXT = (
     "• /liquidations — о ликвидациях фьючерсов (недоступны из региона)\n"
     "• /brief — автобриф по рынку (новости + топ идеи + риск-гейт)\n"
     "• /autobrief on [часы] | off — авторассылка брифа каждые N часов (по умолчанию 4)\n"
+    "• /autopush on [часы] | off | status — автопуш сильных наблюдений (по умолчанию выкл)\n"
     "• /dashboard — ссылка на веб-дашборд (демо на этом ПК)\n"
     "• /broker — режим исполнения (paper/testnet/live); /broker testnet|paper — переключить\n"
     "• /buy ПАРА объём [стоп] [тейк] · /sell … — маркет-ордер (в live — с подтверждением)\n"
@@ -1091,6 +1097,65 @@ async def cmd_autobrief(message: Message, command: CommandObject) -> None:
         f"🔔 Автодайджест включён: каждые {sub['interval_h']:g} ч.\n"
         "🤖 Автодайджест. Наблюдения, не рекомендации. Не финансовый совет.\n"
         "ℹ️ Работает только пока запущен бот. Выключить: /autobrief off"
+    )
+
+
+@router.message(Command("autopush"))
+async def cmd_autopush(message: Message, command: CommandObject) -> None:
+    args = (command.args or "").split()
+    action = args[0].lower() if args else "status"
+
+    if action == "status":
+        sub = get_autopush(_user_id(message))
+        if sub and sub["active"]:
+            txt = f"включён, каждые {sub['interval_h']:g} ч"
+        else:
+            txt = "выключен"
+        await message.answer(
+            f"🔔 Автопуш наблюдений: {txt}.\n"
+            "Порог: сила сетапа ≥ 75, риск-гейт PASS, скептик без FAIL.\n"
+            "Антиспам: пара+сторона раз в 12ч, ≤5 в сутки, тихий час 00:00–07:00 (NY).\n"
+            "Включить: /autopush on [часы] · выключить: /autopush off"
+        )
+        return
+
+    if action == "off":
+        try:
+            set_autopush(_user_id(message), active=False)
+        except Exception:
+            logger.exception("Ошибка /autopush off")
+            await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+            return
+        await message.answer("🔕 Автопуш наблюдений выключен.")
+        return
+
+    if action != "on":
+        await message.answer("Формат: /autopush on [часы] | off | status")
+        return
+
+    interval = 2.0
+    if len(args) > 1:
+        try:
+            interval = float(args[1].replace(",", "."))
+        except ValueError:
+            await message.answer("Часы должны быть числом. Пример: /autopush on 2")
+            return
+
+    try:
+        sub = set_autopush(_user_id(message), active=True, interval_h=interval)
+    except AutopushError as exc:
+        await message.answer(f"Не получилось: {exc}")
+        return
+    except Exception:
+        logger.exception("Ошибка /autopush on")
+        await message.answer("Произошла внутренняя ошибка. Попробуй позже.")
+        return
+
+    await message.answer(
+        f"🔔 Автопуш наблюдений включён: каждые {sub['interval_h']:g} ч.\n"
+        "Пушим только сильные сетапы (≥75) с PASS риск-гейта и без FAIL скептика.\n"
+        "Наблюдения, не рекомендации. Не финансовый совет.\n"
+        "ℹ️ Работает только пока запущен бот. Выключить: /autopush off"
     )
 
 
