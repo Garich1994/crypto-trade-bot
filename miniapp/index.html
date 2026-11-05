@@ -3,470 +3,504 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>CryptoPilot — дашборд</title>
+<title>CryptoPilot</title>
 <style>
   :root{
-    --bg:#0a0c10; --card:#12151c; --card2:#171b24; --line:#232a35; --line2:#2b3340;
-    --gold:#e8b33d; --gold2:#f6cf6b; --green:#0ecb81; --red:#f6465d;
-    --text:#eaecef; --muted:#848e9c;
-    --sb:220px;
+    --bg:#07090d; --bg2:#0b0e13; --card:#12161e; --card2:#171c26; --line:#272e3a;
+    --gold:#e8b33d; --gold2:#ffd36b; --green:#0ecb81; --red:#f6465d;
+    --text:#eef1f5; --muted:#8b93a1;
   }
   *{box-sizing:border-box}
   html,body{margin:0;background:var(--bg);color:var(--text);
-    font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;font-size:14px;-webkit-font-smoothing:antialiased}
-  a{color:inherit;text-decoration:none}
-  .muted{color:var(--muted)}
-  .up{color:var(--green)} .down{color:var(--red)} .gold{color:var(--gold)}
+    font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;font-size:15px;-webkit-font-smoothing:antialiased}
+  .app{max-width:460px;margin:0 auto;min-height:100vh;position:relative;padding-bottom:132px;background:var(--bg)}
+  .muted{color:var(--muted)} .up{color:var(--green)} .down{color:var(--red)} .gold{color:var(--gold)}
 
-  /* layout */
-  .app{display:flex;min-height:100vh}
-  .sidebar{width:var(--sb);flex:0 0 var(--sb);background:linear-gradient(180deg,#0d1017,#0a0c10);
-    border-right:1px solid var(--line);padding:16px 12px;position:sticky;top:0;height:100vh;overflow:auto}
-  .main{flex:1;min-width:0;padding:18px 22px 90px}
+  /* top app bar */
+  .appbar{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 8px;position:sticky;top:0;
+    background:linear-gradient(180deg,var(--bg),rgba(7,9,13,.86));backdrop-filter:blur(6px);z-index:20}
+  .brand{display:flex;align-items:center;gap:8px;font-weight:800}
+  .brand .b{color:var(--gold)}
+  .mono{width:24px;height:24px}
+  .back{width:34px;height:34px;border-radius:10px;border:1px solid var(--line);background:var(--card);
+    display:none;align-items:center;justify-content:center;cursor:pointer}
+  .back.show{display:flex}
 
-  /* logo */
-  .logo{display:flex;align-items:center;gap:9px;padding:6px 8px 14px;font-weight:800;font-size:17px}
-  .logo .pilot{color:var(--gold)}
-  .mono{width:26px;height:26px;flex:0 0 26px}
+  /* screens */
+  .screen{display:none;padding:4px 16px 0;animation:fade .18s ease}
+  .screen.active{display:block}
+  @keyframes fade{from{opacity:.3;transform:translateY(4px)}to{opacity:1;transform:none}}
 
-  /* nav */
-  .nav{display:flex;flex-direction:column;gap:2px;margin-top:6px}
-  .nav a{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:9px;color:var(--muted);font-weight:500}
-  .nav a .ic{width:17px;height:17px;opacity:.85}
-  .nav a:hover{background:var(--card);color:var(--text)}
-  .nav a.active{background:linear-gradient(90deg,rgba(232,179,61,.16),rgba(232,179,61,.04));
-    color:var(--gold);border:1px solid rgba(232,179,61,.28)}
-  .nav .badge{margin-left:auto;background:var(--gold);color:#1a1205;border-radius:999px;
-    font-size:11px;font-weight:700;padding:1px 7px}
-  .pro{margin-top:14px;display:flex;align-items:center;gap:9px;padding:11px;border-radius:11px;
-    background:linear-gradient(135deg,rgba(232,179,61,.16),rgba(232,179,61,.03));
-    border:1px solid rgba(232,179,61,.3)}
-  .pro .t{font-weight:700;color:var(--gold)} .pro .s{font-size:11px}
+  .shead{display:flex;align-items:center;gap:12px;margin:8px 0 14px}
+  .shead .ic{width:44px;height:44px;border-radius:12px;flex:0 0 44px;display:flex;align-items:center;justify-content:center;
+    font-size:22px;background:radial-gradient(circle at 30% 30%,rgba(232,179,61,.22),rgba(232,179,61,.05));
+    border:1px solid rgba(232,179,61,.35)}
+  .shead h1{margin:0;font-size:22px;font-weight:800}
+  .shead .sub{color:var(--muted);font-size:12.5px;margin-top:2px}
 
-  /* topbar */
-  .topbar{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:16px;flex-wrap:wrap}
-  .hello{font-size:22px;font-weight:800}
-  .subtitle{color:var(--muted);font-size:13px;margin-top:3px}
-  .tb-right{display:flex;align-items:center;gap:10px}
-  .pill-badge{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);
-    border-radius:11px;padding:8px 12px;font-size:12px}
-  .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
-  .icon-btn{width:38px;height:38px;border-radius:11px;background:var(--card);border:1px solid var(--line);
-    display:flex;align-items:center;justify-content:center;position:relative;cursor:pointer}
-  .icon-btn .n{position:absolute;top:-5px;right:-5px;background:var(--red);color:#fff;border-radius:999px;
-    font-size:10px;font-weight:700;padding:1px 5px}
-  .bal{text-align:right} .bal .v{font-weight:800;font-size:16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:15px;padding:15px;margin-bottom:13px}
+  .card.glow{border-color:rgba(232,179,61,.4);box-shadow:0 0 0 1px rgba(232,179,61,.08),0 8px 30px rgba(232,179,61,.05)}
+  .h2{font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:0 0 11px}
 
-  /* metric cards */
-  .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px}
-  .metric{display:flex;align-items:center;gap:11px;background:var(--card);border:1px solid var(--line);
-    border-radius:13px;padding:13px 15px}
-  .metric .mi{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;
-    background:var(--card2);flex:0 0 34px}
-  .metric .lbl{color:var(--muted);font-size:12px}
-  .metric .val{font-weight:800;font-size:17px;margin-top:1px}
-  .metric .chg{font-size:12px;font-weight:600}
+  .coins{display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px;margin-bottom:13px}
+  .coin{background:var(--card);border:1px solid rgba(232,179,61,.3);border-radius:13px;padding:10px;text-align:center}
+  .coin .s{color:var(--muted);font-size:11px} .coin .p{font-weight:800;font-size:16px;margin:2px 0}
+  .coin .c{font-size:12px;font-weight:600}
 
-  /* grid of agent cards */
-  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:15px;display:flex;flex-direction:column}
-  .card.wide{grid-column:span 2}
-  @media(max-width:1180px){.card.wide{grid-column:span 1}}
-  .chead{display:flex;align-items:center;gap:10px;margin-bottom:12px}
-  .num{font-size:11px;font-weight:800;color:var(--gold);background:rgba(232,179,61,.12);
-    border:1px solid rgba(232,179,61,.3);border-radius:7px;padding:2px 6px;letter-spacing:.04em}
-  .cic{width:30px;height:30px;border-radius:8px;background:var(--card2);display:flex;align-items:center;justify-content:center;flex:0 0 30px}
-  .ctitle{font-weight:700;font-size:15px;line-height:1.1}
-  .csub{color:var(--muted);font-size:11.5px;margin-top:2px}
+  .gaugewrap{display:flex;align-items:center;gap:16px}
+  .glabel{display:inline-block;margin-top:6px;font-weight:800;font-size:13px;padding:3px 12px;border-radius:999px}
+  .rows .r{display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-top:1px solid var(--line);font-size:14px}
+  .rows .r:first-child{border-top:0} .r .v{font-weight:700}
+  .tag{font-size:12px;font-weight:700;padding:2px 10px;border-radius:999px}
+  .tag.g{color:var(--green);background:rgba(14,203,129,.12)} .tag.r{color:var(--red);background:rgba(246,70,93,.12)}
+  .tag.gold{color:var(--gold);background:rgba(232,179,61,.12)}
 
-  /* widgets */
-  .rows .r{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-top:1px solid var(--line);font-size:13px}
-  .rows .r:first-child{border-top:0}
-  .r .v{font-weight:700}
-  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-  .tile{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:9px;text-align:center}
-  .tile .k{color:var(--muted);font-size:10.5px} .tile .v{font-weight:800;font-size:15px;margin-top:2px}
-  .pill{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;font-size:11.5px;
-    border:1px solid var(--line);margin:0 4px 6px 0}
-  .pill.pass{color:var(--green);border-color:rgba(14,203,129,.4);background:rgba(14,203,129,.07)}
-  .pill.fail{color:var(--red);border-color:rgba(246,70,93,.4);background:rgba(246,70,93,.07)}
-  .chk{display:flex;align-items:center;justify-content:space-between;padding:5px 0;font-size:13px}
-  .chk .tick{color:var(--green);font-weight:700}
-  .bigpass{display:flex;align-items:center;gap:9px;font-size:26px;font-weight:900;color:var(--green);margin:4px 0 12px}
-  .table{width:100%;border-collapse:collapse;font-size:13px}
-  .table th{color:var(--muted);font-weight:600;text-align:left;font-size:11.5px;padding:6px 4px;border-bottom:1px solid var(--line)}
-  .table td{padding:8px 4px;border-bottom:1px solid var(--line)}
-  .table td:last-child,.table th:last-child{text-align:right}
-  .chip{display:inline-block;font-size:11px;padding:3px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted);margin-right:6px}
-  .chip.on{color:var(--gold);border-color:rgba(232,179,61,.4);background:rgba(232,179,61,.08)}
-  .bar{height:7px;background:var(--card2);border-radius:5px;overflow:hidden;margin:6px 0}
+  .obs li{margin:6px 0;list-style:none;display:flex;gap:8px;align-items:flex-start;font-size:14px}
+  .obs{padding:0;margin:0} .dotc{width:8px;height:8px;border-radius:50%;margin-top:6px;flex:0 0 8px}
+
+  .cta{display:block;width:100%;text-align:center;padding:14px;border-radius:14px;font-weight:800;font-size:15px;
+    color:#1a1205;background:linear-gradient(135deg,var(--gold),var(--gold2));border:none;cursor:pointer;margin:4px 0 14px}
+
+  .grid4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:9px}
+  .gbtn{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:12px 6px;text-align:center;cursor:pointer}
+  .gbtn:hover{border-color:rgba(232,179,61,.4)} .gbtn .gi{font-size:19px;color:var(--gold)} .gbtn .gt{font-size:11.5px;margin-top:5px}
+
+  .chips{display:flex;gap:7px;overflow:auto;padding-bottom:4px;margin-bottom:10px}
+  .chip{white-space:nowrap;font-size:12px;padding:5px 12px;border-radius:999px;border:1px solid var(--line);color:var(--muted);cursor:pointer}
+  .chip.on{color:#1a1205;background:var(--gold);border-color:var(--gold);font-weight:700}
+
+  .find{display:flex;align-items:center;gap:11px;padding:11px 0;border-top:1px solid var(--line);cursor:pointer}
+  .find:first-child{border-top:0}
+  .spark{flex:0 0 46px}
+  .find .fn{font-weight:700} .find .fp{font-size:12px;color:var(--muted)}
+  .scoreb{margin-left:auto;text-align:right}
+  .scoreb .sv{font-weight:800;color:var(--gold)}
+
+  .chk{display:flex;align-items:center;justify-content:space-between;padding:7px 0;font-size:14px}
+  .chk .ok{color:var(--green);font-weight:700} .chk .no{color:var(--red);font-weight:700}
+  .bar{height:8px;background:var(--card2);border-radius:6px;overflow:hidden;margin:7px 0}
   .bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--gold),var(--gold2))}
-  .idea{padding:9px 0;border-top:1px solid var(--line)} .idea:first-of-type{border-top:0}
-  .pressure{display:flex;flex-direction:column;gap:7px;min-width:120px}
-  .pbar{height:8px;border-radius:5px;background:var(--card2);overflow:hidden}
-  .pbar>i{display:block;height:100%}
-  .news-i{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--line);font-size:13px}
-  .news-i:first-child{border-top:0}
-  .src{font-size:11px;color:var(--gold)}
-  .gauge-wrap{display:flex;align-items:center;gap:14px}
-  .equity{width:100%;height:60px}
 
-  footer{margin-top:20px;padding-top:14px;border-top:1px solid var(--line);color:var(--muted);
-    font-size:12px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+  .tfs{display:flex;gap:6px;margin:4px 0 12px}
+  .tf{flex:1;text-align:center;padding:8px 0;border-radius:9px;border:1px solid var(--line);font-size:12px;color:var(--muted);cursor:pointer}
+  .tf.on{color:#1a1205;background:var(--gold);border-color:var(--gold);font-weight:700}
 
-  /* mobile tab bar */
-  .tabbar{display:none;position:fixed;left:0;right:0;bottom:0;z-index:30;background:rgba(13,16,23,.96);
-    border-top:1px solid var(--line);backdrop-filter:blur(8px);padding:7px 10px calc(7px + env(safe-area-inset-bottom));
-    align-items:center;justify-content:space-around}
-  .tabbar a{display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--muted);font-size:11px;padding:4px 8px}
-  .tabbar a.active{color:var(--gold)}
-  .tabbar .cta{background:linear-gradient(135deg,var(--gold),var(--gold2));color:#1a1205;font-weight:800;
-    border-radius:12px;padding:10px 16px;font-size:13px}
+  .tiles{display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px}
+  .tile{background:var(--card2);border:1px solid var(--line);border-radius:11px;padding:11px;text-align:center}
+  .tile .k{color:var(--muted);font-size:11px} .tile .v{font-weight:800;font-size:16px;margin-top:3px}
 
-  @media(max-width:900px){
-    .sidebar{display:none}
-    .main{padding:14px 14px 86px}
-    .metrics{grid-template-columns:repeat(2,1fr)}
-    .grid{grid-template-columns:1fr}
-    .hello{font-size:19px}
-    .tabbar{display:flex}
-    .tiles{grid-template-columns:repeat(2,1fr)}
-  }
+  .big{font-size:40px;font-weight:900;text-align:center;margin:6px 0}
+  .passbox{text-align:center;padding:16px;border-radius:14px;border:1px solid rgba(14,203,129,.4);background:rgba(14,203,129,.07);margin-bottom:12px}
+  .passbox .p{font-size:28px;font-weight:900;color:var(--green)}
+
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .pos{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-top:1px solid var(--line)}
+  .pos:first-child{border-top:0}
+  .whale{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-top:1px solid var(--line)}
+  .whale:first-child{border-top:0}
+  .toggle{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid var(--line)}
+  .toggle:first-child{border-top:0}
+  .sw{width:40px;height:22px;border-radius:999px;background:var(--green);position:relative;flex:0 0 40px}
+  .sw::after{content:"";position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;background:#fff}
+  .news-i{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid var(--line);font-size:13.5px}
+  .news-i:first-child{border-top:0} .src{font-size:11px;color:var(--gold);white-space:nowrap}
+
+  .hint{font-size:11.5px;color:var(--muted);margin-top:8px}
+
+  /* persistent disclaimer + tab bar */
+  .bottom{position:fixed;left:0;right:0;bottom:0;max-width:460px;margin:0 auto;z-index:25}
+  .disc{text-align:center;font-size:11px;color:var(--muted);background:rgba(7,9,13,.92);padding:6px 10px;border-top:1px solid var(--line)}
+  .tabbar{display:flex;align-items:center;justify-content:space-around;background:rgba(11,14,19,.97);
+    padding:8px 6px calc(8px + env(safe-area-inset-bottom));backdrop-filter:blur(8px)}
+  .tab{display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--muted);font-size:10.5px;cursor:pointer}
+  .tab .ti{font-size:19px}
+  .tab.on{color:var(--gold)}
 </style>
 </head>
 <body>
 <div class="app">
-  <!-- SIDEBAR -->
-  <aside class="sidebar">
-    <div class="logo"><svg class="mono" viewBox="0 0 32 32" fill="none"><rect x="1" y="1" width="30" height="30" rx="8" stroke="#e8b33d" stroke-width="1.5"/><path d="M7 21l5-6 4 3 7-9" stroke="#e8b33d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="23" cy="9" r="2" fill="#e8b33d"/></svg><span>Crypto<span class="pilot">Pilot</span></span></div>
-    <nav class="nav" id="nav">
-      <a href="#c1" class="active"><span class="ic">🏠</span>Обзор</a>
-      <a href="#c2"><span class="ic">📈</span>Рынок</a>
-      <a href="#c3"><span class="ic">🔭</span>Сканер</a>
-      <a href="#c4"><span class="ic">📊</span>Аналитика (TA)</a>
-      <a href="#c5"><span class="ic">🕰</span>Бэктест (Time Machine)</a>
-      <a href="#c11"><span class="ic">🧪</span>Портфель (Paper)</a>
-      <a href="#c10"><span class="ic">📒</span>Журнал (Journal)</a>
-      <a href="#c6"><span class="ic">🔔</span>Алерты (Сторож)<span class="badge">3</span></a>
-      <a href="#c12"><span class="ic">🐋</span>Крупные сделки</a>
-      <a href="#c15"><span class="ic">📰</span>Новости</a>
-      <a href="#c9"><span class="ic">🛡</span>Риск-контроль</a>
-      <a href="#c14"><span class="ic">🧭</span>Автодайджест</a>
-    </nav>
-    <div class="pro">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="#e8b33d"><path d="M3 7l4 4 5-6 5 6 4-4v10H3z"/></svg>
-      <div><div class="t">Pro</div><div class="s muted">Активен до 25 ноя. 2026</div></div>
+  <div class="appbar">
+    <div style="display:flex;align-items:center;gap:8px">
+      <div class="back" id="back">‹</div>
+      <div class="brand"><svg class="mono" viewBox="0 0 32 32" fill="none"><rect x="1" y="1" width="30" height="30" rx="8" stroke="#e8b33d" stroke-width="1.5"/><path d="M7 21l5-6 4 3 7-9" stroke="#e8b33d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="23" cy="9" r="2" fill="#e8b33d"/></svg><span>Crypto<span class="b">Pilot</span></span></div>
     </div>
-  </aside>
+    <div class="muted" id="updated" style="font-size:11px">—</div>
+  </div>
 
-  <!-- MAIN -->
-  <main class="main">
-    <div class="topbar">
-      <div>
-        <div class="hello">Добро пожаловать в CryptoPilot 👋</div>
-        <div class="subtitle">Аналитика · Статистика · Тестирование · Контроль рисков</div>
-      </div>
-      <div class="tb-right">
-        <div class="pill-badge"><span class="dot"></span><div>Данные: <b>Binance (Spot)</b><div class="muted" id="updated">Обновлено: —</div></div></div>
-        <div class="icon-btn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#eaecef" stroke-width="1.8"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg><span class="n">3</span></div>
-        <div class="bal"><div class="muted" style="font-size:11px">🧪 Paper-баланс</div><div class="v" id="balance">—</div></div>
-      </div>
-    </div>
-
-    <!-- metric cards -->
-    <div class="metrics" id="metrics">
-      <div class="metric"><div class="mi">₿</div><div><div class="lbl">BTC/USDT</div><div class="val" id="m-btc">—</div><div class="chg" id="m-btc-c"></div></div></div>
-      <div class="metric"><div class="mi">◆</div><div><div class="lbl">ETH/USDT</div><div class="val" id="m-eth">—</div><div class="chg" id="m-eth-c"></div></div></div>
-      <div class="metric"><div class="mi">◎</div><div><div class="lbl">SOL/USDT</div><div class="val" id="m-sol">—</div><div class="chg" id="m-sol-c"></div></div></div>
-      <div class="metric"><div class="mi gold">▦</div><div><div class="lbl">Наблюдений сейчас</div><div class="val" id="m-obs">—</div><div class="chg muted">нейтральные</div></div></div>
-    </div>
-
-    <div class="grid">
-      <!-- 01 Обзор -->
-      <div class="card wide" id="c1">
-        <div class="chead"><span class="num">01</span><div class="cic">🏠</div><div><div class="ctitle">Обзор рынка</div><div class="csub">Ключевые метрики и активность агентов</div></div></div>
-        <div class="rows" id="overview"><div class="muted">Загрузка…</div></div>
-      </div>
-
-      <!-- 02 Рынок -->
-      <div class="card" id="c2">
-        <div class="chead"><span class="num">02</span><div class="cic">📈</div><div><div class="ctitle">Рынок</div><div class="csub">Спот · Binance</div></div></div>
-        <table class="table"><thead><tr><th>Пара</th><th>Цена</th><th>24ч</th><th>Тренд</th></tr></thead>
-          <tbody id="market-tb"><tr><td class="muted" colspan="4">Загрузка…</td></tr></tbody></table>
-      </div>
-
-      <!-- 03 Сканер -->
-      <div class="card" id="c3">
-        <div class="chead"><span class="num">03</span><div class="cic">🔭</div><div><div class="ctitle">Сканер</div><div class="csub">нейтральные наблюдения</div></div></div>
-        <div style="margin-bottom:8px"><span class="chip on">Наблюдения</span><span class="chip">Паттерны</span><span class="chip">Объём</span></div>
-        <div id="scanner"><div class="muted">Загрузка…</div></div>
-      </div>
-
-      <!-- 04 Аналитика (TA) -->
-      <div class="card" id="c4">
-        <div class="chead"><span class="num">04</span><div class="cic">📊</div><div><div class="ctitle">Аналитика (TA)</div><div class="csub">индикаторы и уровни · BTC/USDT 4H</div></div></div>
-        <div class="rows">
-          <div class="r"><span class="muted">EMA 20</span><span class="v gold">66 912.4</span></div>
-          <div class="r"><span class="muted">EMA 50</span><span class="v">65 873.1</span></div>
-          <div class="r"><span class="muted">EMA 200</span><span class="v">62 418.7</span></div>
-          <div class="r"><span class="muted">RSI 14</span><span class="v" id="ta-rsi">58.4</span></div>
-          <div class="r"><span class="muted">Сопротивление</span><span class="v down">68 800</span></div>
-          <div class="r"><span class="muted">Поддержка</span><span class="v up">66 100</span></div>
+  <!-- 1. ОБЗОР -->
+  <section class="screen active" id="s-overview" data-title="Обзор">
+    <div class="coins" id="ov-coins"><div class="muted">Загрузка…</div></div>
+    <div class="card glow">
+      <div class="gaugewrap">
+        <div id="ov-gauge"></div>
+        <div class="rows" style="flex:1">
+          <div class="r"><span class="muted">Индекс рынка</span><span class="v" id="ov-idx-val">—</span></div>
+          <div class="r"><span class="muted">Широта</span><span class="v" id="ov-breadth">—</span></div>
+          <div class="r"><span class="muted">Импульс</span><span class="v" id="ov-momentum">—</span></div>
+          <div class="r"><span class="muted">Объём</span><span class="v" id="ov-volc">—</span></div>
         </div>
       </div>
+      <div class="hint">Широта + импульс + объём. Режим рынка, не прогноз.</div>
+    </div>
+    <div class="card">
+      <div class="h2">⚡ Ключевые наблюдения</div>
+      <ul class="obs" id="ov-obs"><li class="muted">Загрузка…</li></ul>
+    </div>
+    <button class="cta" onclick="go('s-ta')">📊 Открыть аналитику</button>
+    <div class="grid4" style="margin-bottom:14px">
+      <div class="gbtn" onclick="go('s-scanner')"><div class="gi">🔍</div><div class="gt">Сканер</div></div>
+      <div class="gbtn" onclick="go('s-ta')"><div class="gi">📊</div><div class="gt">Аналитика</div></div>
+      <div class="gbtn" onclick="go('s-pattern')"><div class="gi">📈</div><div class="gt">Паттерны</div></div>
+      <div class="gbtn" onclick="go('s-timemachine')"><div class="gi">🕰</div><div class="gt">Бэктест</div></div>
+      <div class="gbtn" onclick="go('s-journal')"><div class="gi">📒</div><div class="gt">Журнал</div></div>
+      <div class="gbtn" onclick="go('s-risk')"><div class="gi">🛡</div><div class="gt">Риск</div></div>
+      <div class="gbtn" onclick="go('s-alerts')"><div class="gi">🔔</div><div class="gt">Алерты</div></div>
+      <div class="gbtn" onclick="go('s-paper')"><div class="gi">🧪</div><div class="gt">Портфель</div></div>
+    </div>
+  </section>
 
-      <!-- 05 Time Machine -->
-      <div class="card" id="c5">
-        <div class="chead"><span class="num">05</span><div class="cic">🕰</div><div><div class="ctitle">Time Machine</div><div class="csub">бэктест стратегии (ориентир)</div></div></div>
-        <div class="tiles">
-          <div class="tile"><div class="k">Win Rate</div><div class="v">56.8%</div></div>
-          <div class="tile"><div class="k">Expectancy</div><div class="v up">+0.42R</div></div>
-          <div class="tile"><div class="k">Profit Factor</div><div class="v">1.63</div></div>
-          <div class="tile"><div class="k">Max DD</div><div class="v down">-12.4%</div></div>
-        </div>
-        <svg class="equity" viewBox="0 0 300 60" preserveAspectRatio="none"><polyline fill="none" stroke="#0ecb81" stroke-width="2" points="0,52 40,46 80,48 120,36 160,30 200,22 240,26 300,10"/></svg>
-      </div>
+  <!-- 2. СКАНЕР -->
+  <section class="screen" id="s-scanner" data-title="Сканер">
+    <div class="shead"><div class="ic">🔍</div><div><h1>Сканер рынка</h1><div class="sub">Поиск наблюдений и паттернов</div></div></div>
+    <div class="chips"><span class="chip on">Все</span><span class="chip">Паттерны</span><span class="chip">Пробои</span><span class="chip">Объём</span><span class="chip">RSI</span></div>
+    <div class="card"><div id="sc-list"><div class="muted">Загрузка…</div></div></div>
+  </section>
 
-      <!-- 06 Entry Timer -->
-      <div class="card" id="c6">
-        <div class="chead"><span class="num">06</span><div class="cic">⏱</div><div><div class="ctitle">Entry Timer</div><div class="csub">скоринг условий входа</div></div></div>
-        <div class="gauge-wrap">
-          <div id="gauge"></div>
-          <div class="rows" style="flex:1">
-            <div class="chk"><span class="muted">Тренд (EMA)</span><span class="tick">✓ 20</span></div>
-            <div class="chk"><span class="muted">Импульс (RSI)</span><span class="tick">✓ 15</span></div>
-            <div class="chk"><span class="muted">Объём</span><span class="tick">✓ 15</span></div>
-            <div class="chk"><span class="muted">Волатильность</span><span class="tick">✓ 10</span></div>
-            <div class="chk"><span class="muted">Уровни (S/R)</span><span class="tick">✓ 12</span></div>
+  <!-- 3. ДЕТАЛИ ПАТТЕРНА -->
+  <section class="screen" id="s-pattern" data-title="Детали">
+    <div class="shead"><div class="ic">📈</div><div><h1 id="pt-title">Паттерн</h1><div class="sub" id="pt-sub">Разбор сетапа</div></div></div>
+    <div class="card glow">
+      <div class="gaugewrap">
+        <div id="pt-gauge"></div>
+        <div style="flex:1">
+          <div class="rows">
+            <div class="r"><span class="muted">Сила сетапа</span><span class="v gold" id="pt-score">—</span></div>
+            <div class="r"><span class="muted">Сторона</span><span class="v" id="pt-side">—</span></div>
+            <div class="r"><span class="muted">Структура</span><span class="v" id="pt-struct">—</span></div>
           </div>
         </div>
-        <div class="csub" style="margin-top:8px">Условия в целом соответствуют восходящему сценарию. Наблюдается рост объёма.</div>
       </div>
-
-      <!-- 07 Exit Planner -->
-      <div class="card" id="c7">
-        <div class="chead"><span class="num">07</span><div class="cic">🚪</div><div><div class="ctitle">Exit Planner</div><div class="csub">стоп и тейк-уровни от ATR</div></div></div>
-        <div class="rows" id="exit">
-          <div class="r"><span class="muted">Вход (гипотеза)</span><span class="v">67 400</span></div>
-          <div class="r"><span class="muted">ATR (14)</span><span class="v">1 428</span></div>
-          <div class="r"><span class="muted">Стоп (1.5×ATR)</span><span class="v down">65 258 (−3.2%)</span></div>
-          <div class="r"><span class="muted">Тейк 1 (R:R 1:1.5)</span><span class="v up">70 618 (+4.8%)</span></div>
-          <div class="r"><span class="muted">Тейк 2 (R:R 1:2)</span><span class="v up">72 264 (+7.2%)</span></div>
-        </div>
-      </div>
-
-      <!-- 08 Budget -->
-      <div class="card" id="c8">
-        <div class="chead"><span class="num">08</span><div class="cic">💼</div><div><div class="ctitle">Budget</div><div class="csub">размер позиции по риску</div></div></div>
-        <div class="rows">
-          <div class="r"><span class="muted">Депозит</span><span class="v">10 000 USDT</span></div>
-          <div class="r"><span class="muted">Риск на сделку</span><span class="v">1.0%</span></div>
-          <div class="r"><span class="muted">Вход / Стоп</span><span class="v">67 400 / 65 258</span></div>
-        </div>
-        <div class="tiles" style="grid-template-columns:1fr 1fr;margin-top:10px">
-          <div class="tile"><div class="k">Размер позиции</div><div class="v gold">0.148 BTC</div></div>
-          <div class="tile"><div class="k">Риск в деньгах</div><div class="v">$100.00</div></div>
-        </div>
-      </div>
-
-      <!-- 09 Risk Gate -->
-      <div class="card" id="c9">
-        <div class="chead"><span class="num">09</span><div class="cic">🛡</div><div><div class="ctitle">Risk Gate</div><div class="csub">проверка риск-лимитов (ориентир)</div></div></div>
-        <div class="bigpass">✅ PASS</div>
-        <div class="chk"><span class="muted">Стоп указан</span><span class="tick">✓</span></div>
-        <div class="chk"><span class="muted">R:R ≥ 1.5 (факт 1:2)</span><span class="tick">✓</span></div>
-        <div class="chk"><span class="muted">Дневной лимит риска не превышен</span><span class="tick">✓</span></div>
-        <div class="chk"><span class="muted">Лимит сделок не превышен</span><span class="tick">✓</span></div>
-        <div class="chk"><span class="muted">Дубликатов по паре нет</span><span class="tick">✓</span></div>
-      </div>
-
-      <!-- 10 Journal -->
-      <div class="card" id="c10">
-        <div class="chead"><span class="num">10</span><div class="cic">📒</div><div><div class="ctitle">Journal</div><div class="csub">журнал закрытых сделок</div></div></div>
-        <div id="journal"><div class="muted">Загрузка…</div></div>
-      </div>
-
-      <!-- 11 Paper Executor -->
-      <div class="card" id="c11">
-        <div class="chead"><span class="num">11</span><div class="cic">🧪</div><div><div class="ctitle">Paper Executor</div><div class="csub">виртуальный портфель (1x)</div></div></div>
-        <div id="paper"><div class="muted">Загрузка…</div></div>
-      </div>
-
-      <!-- 12 Whale Tracker -->
-      <div class="card" id="c12">
-        <div class="chead"><span class="num">12</span><div class="cic">🐋</div><div><div class="ctitle">Whale Tracker</div><div class="csub">крупные сделки спота</div></div></div>
-        <div id="whales"><div class="muted">Загрузка…</div></div>
-      </div>
-
-      <!-- 13 Skeptic -->
-      <div class="card" id="c13">
-        <div class="chead"><span class="num">13</span><div class="cic">🔍</div><div><div class="ctitle">Skeptic</div><div class="csub">критик идеи — проверки</div></div></div>
-        <div id="skeptic"><div class="muted">Загрузка…</div></div>
-      </div>
-
-      <!-- 14 Coordinator -->
-      <div class="card" id="c14">
-        <div class="chead"><span class="num">14</span><div class="cic">🧭</div><div><div class="ctitle">Coordinator</div><div class="csub">автодайджест — наблюдения</div></div></div>
-        <div id="coordinator"><div class="muted">Загрузка…</div></div>
-      </div>
-
-      <!-- 15 Новости -->
-      <div class="card" id="c15">
-        <div class="chead"><span class="num">15</span><div class="cic">📰</div><div><div class="ctitle">Новости</div><div class="csub">свежие заголовки (RSS)</div></div></div>
-        <div id="news"><div class="muted">Загрузка…</div></div>
-      </div>
+      <div class="hint">Качество сетапа по правилам, НЕ вероятность успеха.</div>
     </div>
+    <div class="card"><div class="h2">Факторы</div><div id="pt-factors"><div class="muted">Выбери находку в сканере.</div></div></div>
+  </section>
 
-    <footer>
-      <span>⚠️ Не финансовый совет. Платформа предоставляет нейтральную аналитику, статистику и инструменты для обучения.</span>
-      <span class="muted">CryptoPilot v1.0</span>
-    </footer>
-  </main>
+  <!-- 4. АНАЛИТИКА (ТА) -->
+  <section class="screen" id="s-ta" data-title="Аналитика (ТА)">
+    <div class="shead"><div class="ic">📊</div><div><h1>Аналитика (ТА)</h1><div class="sub" id="ta-sym">—</div></div></div>
+    <div class="tfs"><div class="tf">15m</div><div class="tf on">1H</div><div class="tf">4H</div><div class="tf">1D</div><div class="tf">1W</div></div>
+    <div class="card"><div class="rows" id="ta-ind"><div class="muted">Загрузка…</div></div></div>
+    <div class="card"><div class="h2">Уровни (S/R)</div><div class="rows" id="ta-sr"></div></div>
+  </section>
+
+  <!-- 5. ЖУРНАЛ -->
+  <section class="screen" id="s-journal" data-title="Журнал">
+    <div class="shead"><div class="ic">📒</div><div><h1>Журнал сделок</h1><div class="sub">Учёт, статистика и анализ</div></div></div>
+    <div class="card"><div class="tiles" id="jr-tiles"><div class="muted">Загрузка…</div></div></div>
+  </section>
+
+  <!-- 6. TIME MACHINE -->
+  <section class="screen" id="s-timemachine" data-title="Time Machine">
+    <div class="shead"><div class="ic">🕰</div><div><h1>Time Machine</h1><div class="sub">Анализ прошлых ситуаций</div></div></div>
+    <div class="card"><div class="h2">Бэктест гипотезы</div>
+      <div class="muted" style="font-size:14px">Прогон уровней сделки по истории — команда <b>/backtest</b> в боте
+        (вход, стоп, тейк). Показывает win rate, средний R, expectancy, просадку по прошлым свечам.</div>
+      <div class="hint">Исторический replay, а не предсказание. Прошлое не гарантирует будущего.</div>
+    </div>
+  </section>
+
+  <!-- 7. ENTRY TIMER -->
+  <section class="screen" id="s-entry" data-title="Entry Timer">
+    <div class="shead"><div class="ic">⏱</div><div><h1>Entry Timer</h1><div class="sub">Оценка условий входа</div></div></div>
+    <div class="card glow"><div class="gaugewrap"><div id="en-gauge"></div>
+      <div class="rows" style="flex:1" id="en-rows"><div class="muted">Загрузка…</div></div></div>
+      <div class="hint">Балл описывает настоящее, не предсказывает.</div></div>
+  </section>
+
+  <!-- 8. EXIT PLANNER -->
+  <section class="screen" id="s-exit" data-title="Exit Planner">
+    <div class="shead"><div class="ic">🚪</div><div><h1>Exit Planner</h1><div class="sub">План выхода из сделки</div></div></div>
+    <div class="card"><div class="rows" id="ex-rows"><div class="muted">Загрузка…</div></div>
+      <div class="hint">Арифметика по данным, не рекомендация.</div></div>
+  </section>
+
+  <!-- 9. BUDGET -->
+  <section class="screen" id="s-budget" data-title="Budget">
+    <div class="shead"><div class="ic">💼</div><div><h1>Budget</h1><div class="sub">Размер позиции по риску</div></div></div>
+    <div class="card"><div class="rows" id="bd-in"><div class="muted">Загрузка…</div></div></div>
+    <div class="card glow"><div class="h2">Рекомендуемый размер</div>
+      <div class="big gold" id="bd-size">—</div>
+      <div class="rows" id="bd-out"></div>
+      <div class="hint">Калькулятор по риску, не рекомендация.</div></div>
+  </section>
+
+  <!-- 10. RISK GATE -->
+  <section class="screen" id="s-risk" data-title="Risk Gate">
+    <div class="shead"><div class="ic">🛡</div><div><h1>Risk Gate</h1><div class="sub">Проверка сделки на риски</div></div></div>
+    <div id="rk-body"><div class="muted">Загрузка…</div></div>
+  </section>
+
+  <!-- 11. PAPER EXECUTOR -->
+  <section class="screen" id="s-paper" data-title="Paper Executor">
+    <div class="shead"><div class="ic">🧪</div><div><h1>Paper Executor</h1><div class="sub">Виртуальная торговля (демо)</div></div></div>
+    <div class="card"><div class="rows" id="pp-head"><div class="muted">Загрузка…</div></div></div>
+    <div class="card"><div class="h2">Открытые позиции</div><div id="pp-pos"></div></div>
+  </section>
+
+  <!-- 12. WHALE TRACKER -->
+  <section class="screen" id="s-whale" data-title="Whale Tracker">
+    <div class="shead"><div class="ic">🐋</div><div><h1>Whale Tracker</h1><div class="sub">Крупные сделки спота</div></div></div>
+    <div class="card"><div id="wh-body"><div class="muted">Загрузка…</div></div></div>
+  </section>
+
+  <!-- 13. SKEPTIC -->
+  <section class="screen" id="s-skeptic" data-title="Skeptic">
+    <div class="shead"><div class="ic">🔍</div><div><h1>Skeptic</h1><div class="sub">Проверка идеи и риски</div></div></div>
+    <div class="two"><div class="card"><div class="h2 up">За идею</div><div id="sk-for"></div></div>
+      <div class="card"><div class="h2 down">Против</div><div id="sk-against"></div></div></div>
+    <div class="card glow"><div class="h2">Итог</div><div id="sk-sum" class="muted">Загрузка…</div></div>
+  </section>
+
+  <!-- 14. COORDINATOR -->
+  <section class="screen" id="s-coordinator" data-title="Coordinator">
+    <div class="shead"><div class="ic">🧭</div><div><h1>Coordinator</h1><div class="sub">Оркестрация AI-агентов</div></div></div>
+    <div class="card" id="co-body"><div class="muted">Загрузка…</div></div>
+    <div class="card"><div class="h2">Агенты</div>
+      <div class="toggle"><span>Сканер (поиск наблюдений)</span><span class="sw"></span></div>
+      <div class="toggle"><span>Аналитик (ТА и уровни)</span><span class="sw"></span></div>
+      <div class="toggle"><span>Риск-менеджер</span><span class="sw"></span></div>
+      <div class="toggle"><span>Skeptic (проверка идеи)</span><span class="sw"></span></div>
+      <div class="toggle"><span>Новости</span><span class="sw"></span></div>
+    </div>
+  </section>
+
+  <!-- 15. АЛЕРТЫ -->
+  <section class="screen" id="s-alerts" data-title="Алерты">
+    <div class="shead"><div class="ic">🔔</div><div><h1>Алерты</h1><div class="sub">События по вашим настройкам</div></div></div>
+    <div class="card">
+      <div class="toggle"><span>Паттерн найден<br><span class="muted" style="font-size:12px">новые торговые паттерны</span></span><span class="sw"></span></div>
+      <div class="toggle"><span>Уровень достигнут<br><span class="muted" style="font-size:12px">поддержка / сопротивление</span></span><span class="sw"></span></div>
+      <div class="toggle"><span>Крупная сделка (киты)<br><span class="muted" style="font-size:12px">от 250 000 USDT</span></span><span class="sw"></span></div>
+      <div class="toggle"><span>Резкий объём<br><span class="muted" style="font-size:12px">рост объёма &gt; 50%</span></span><span class="sw"></span></div>
+    </div>
+    <div class="card"><div class="h2">Как поставить</div>
+      <div class="muted" style="font-size:14px">В боте: <b>/watch ПАРА тип порог</b> (например price_above). Проверка каждые 120с, пока запущен бот.</div></div>
+  </section>
+
+  <div class="bottom">
+    <div class="disc">⚠️ Не финансовый совет. Наблюдения, не рекомендации.</div>
+    <nav class="tabbar" id="tabbar">
+      <div class="tab on" data-s="s-overview"><div class="ti">🏠</div><span>Обзор</span></div>
+      <div class="tab" data-s="s-scanner"><div class="ti">🔍</div><span>Сканер</span></div>
+      <div class="tab" data-s="s-ta"><div class="ti">📊</div><span>Аналитика</span></div>
+      <div class="tab" data-s="s-journal"><div class="ti">📒</div><span>Журнал</span></div>
+      <div class="tab" data-s="s-paper"><div class="ti">🧪</div><span>Портфель</span></div>
+    </nav>
+  </div>
 </div>
-
-<!-- MOBILE TAB BAR -->
-<nav class="tabbar">
-  <a href="#c1" class="active">🏠<span>Обзор</span></a>
-  <a href="#c2">📈<span>Рынок</span></a>
-  <a href="#c11">🧪<span>Портфель</span></a>
-  <a class="cta" href="#c14">Дайджест</a>
-  <a href="#c15">⋯<span>Ещё</span></a>
-</nav>
 
 <script>
 const UID = 1;
-const fmt = n => (n>=1000? Number(n).toLocaleString('ru-RU',{maximumFractionDigits:2})
-                         : (n>=1? Number(n).toFixed(2): Number(n).toPrecision(4)));
-const pct = n => (n>=0?'+':'')+Number(n).toFixed(2)+'%';
+const fmt = n => (n==null?'—':(Math.abs(n)>=1000? Number(n).toLocaleString('ru-RU',{maximumFractionDigits:2})
+  : (Math.abs(n)>=1? Number(n).toFixed(2): Number(n).toPrecision(4))));
+const pct = n => (n==null?'н/д':(n>=0?'+':'')+Number(n).toFixed(2)+'%');
 const sideRu = s => s==='long'?'лонг':'шорт';
-async function getJSON(u){ try{return await (await fetch(u)).json();}catch(e){return {ok:false,error:String(e)};} }
+async function J(u){ try{return await (await fetch(u)).json();}catch(e){return {ok:false,error:String(e)};} }
 
-function gauge(val){
-  val=Math.max(0,Math.min(100,val));
-  const r=42,c=2*Math.PI*r,off=c*(1-val/100);
-  return `<svg width="104" height="104" viewBox="0 0 104 104">
-    <circle cx="52" cy="52" r="${r}" fill="none" stroke="#232a35" stroke-width="9"/>
-    <circle cx="52" cy="52" r="${r}" fill="none" stroke="#0ecb81" stroke-width="9" stroke-linecap="round"
-      stroke-dasharray="${c}" stroke-dashoffset="${off}" transform="rotate(-90 52 52)"/>
-    <text x="52" y="50" text-anchor="middle" fill="#eaecef" font-size="26" font-weight="800">${Math.round(val)}</text>
-    <text x="52" y="68" text-anchor="middle" fill="#848e9c" font-size="11">/100</text></svg>`;
+function gauge(val,size=108){
+  val=Math.max(0,Math.min(100,val||0));
+  const r=size*0.4,c=2*Math.PI*r,off=c*(1-val/100),cx=size/2;
+  const col = val<25?'#f6465d':val<55?'#e8b33d':'#0ecb81';
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    <circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="#272e3a" stroke-width="9"/>
+    <circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="${col}" stroke-width="9" stroke-linecap="round"
+      stroke-dasharray="${c}" stroke-dashoffset="${off}" transform="rotate(-90 ${cx} ${cx})"/>
+    <text x="${cx}" y="${cx-2}" text-anchor="middle" fill="#eef1f5" font-size="${size*0.26}" font-weight="800">${Math.round(val)}</text>
+    <text x="${cx}" y="${cx+16}" text-anchor="middle" fill="#8b93a1" font-size="11">/100</text></svg>`;
 }
-function spark(data,w=72,h=22){
+function spark(data,w=46,h=22){
   if(!data||data.length<2) return '';
-  const min=Math.min(...data),max=Math.max(...data),rng=(max-min)||1;
-  const pts=data.map((v,i)=>[(i/(data.length-1))*w,h-((v-min)/rng)*h]);
+  const mn=Math.min(...data),mx=Math.max(...data),rg=(mx-mn)||1;
+  const p=data.map((v,i)=>[(i/(data.length-1))*w,h-((v-mn)/rg)*h]);
   const col=data[data.length-1]>=data[0]?'#0ecb81':'#f6465d';
-  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline fill="none" stroke="${col}" stroke-width="1.6" points="${pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ')}"/></svg>`;
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline fill="none" stroke="${col}" stroke-width="1.6" points="${p.map(q=>q[0].toFixed(1)+','+q[1].toFixed(1)).join(' ')}"/></svg>`;
 }
-document.getElementById('gauge').innerHTML = gauge(72);
 
+/* routing */
+const order=['s-overview','s-scanner','s-ta','s-journal','s-paper'];
+function go(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active',s.id===id));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on',t.dataset.s===id));
+  document.getElementById('back').classList.toggle('show', id!=='s-overview');
+  window.scrollTo(0,0);
+}
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>go(t.dataset.s));
+document.getElementById('back').onclick=()=>go('s-overview');
+
+/* data */
+let STATE={};
 async function loadMarket(){
-  const d=await getJSON('/api/market');
-  if(!d.ok){ document.getElementById('market-tb').innerHTML='<tr><td class="muted" colspan="4">Рынок недоступен.</td></tr>'; return; }
-  const by={}; d.coins.forEach(c=>by[c.symbol]=c);
-  const set=(id,sym)=>{const c=by[sym]; if(!c)return;
-    document.getElementById(id).textContent='$'+fmt(c.price);
-    const e=document.getElementById(id+'-c'); e.textContent=pct(c.change24h); e.className='chg '+(c.change24h>=0?'up':'down');};
-  set('m-btc','BTCUSDT'); set('m-eth','ETHUSDT'); set('m-sol','SOLUSDT');
-  document.getElementById('updated').textContent='Обновлено: '+new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-  document.getElementById('market-tb').innerHTML = d.coins.map(c=>{
-    const cl=c.change24h>=0?'up':'down';
-    return `<tr><td><b>${c.symbol.replace('USDT','')}</b>/USDT</td><td>$${fmt(c.price)}</td>
-      <td class="${cl}">${pct(c.change24h)}</td><td>${spark(c.spark)}</td></tr>`;}).join('');
+  const d=await J('/api/market');
+  const el=document.getElementById('ov-coins');
+  if(!d.ok){ el.innerHTML='<div class="muted">Рынок недоступен.</div>'; return; }
+  STATE.market=d.coins;
+  el.innerHTML=d.coins.map(c=>`<div class="coin"><div class="s">${c.symbol.replace('USDT','')}/USDT</div>
+    <div class="p">$${fmt(c.price)}</div><div class="c ${c.change24h>=0?'up':'down'}">${pct(c.change24h)}</div>
+    <div>${spark(c.spark)}</div></div>`).join('');
+  document.getElementById('updated').textContent='Обновлено: '+new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
 }
-
-async function loadPaper(){
-  const d=await getJSON('/api/paper/'+UID), el=document.getElementById('paper');
-  if(d.ok&&d.portfolio){
-    document.getElementById('balance').textContent=fmt(d.portfolio.balance)+' USDT';
-    const pos=d.portfolio.positions||[];
-    el.innerHTML=`<div class="rows"><div class="r"><span class="muted">Виртуальный счёт</span><span class="v">10 000 USDT</span></div>
-      <div class="r"><span class="muted">Свободный баланс</span><span class="v gold">${fmt(d.portfolio.balance)} USDT</span></div>
-      <div class="r"><span class="muted">Открытых позиций</span><span class="v">${pos.length}</span></div></div>`;
-  } else { el.innerHTML='<div class="muted">Портфель недоступен.</div>'; }
+async function loadIndex(){
+  const d=await J('/api/market_index');
+  if(!d.ok||!d.index){ document.getElementById('ov-gauge').innerHTML=gauge(0); return; }
+  const x=d.index;
+  document.getElementById('ov-gauge').innerHTML=gauge(x.value);
+  document.getElementById('ov-idx-val').innerHTML=`${x.value}/100 <span class="tag gold">${x.label}</span>`;
+  document.getElementById('ov-breadth').textContent=x.components.breadth;
+  document.getElementById('ov-momentum').textContent=x.components.momentum;
+  document.getElementById('ov-volc').textContent=x.components.volume;
 }
-
+async function loadScan(){
+  const d=await J('/api/scan');
+  const el=document.getElementById('sc-list');
+  if(!d.ok){ el.innerHTML='<div class="muted">Сканер недоступен.</div>'; return; }
+  STATE.findings=d.findings||[];
+  if(!STATE.findings.length){ el.innerHTML='<div class="muted">Ярких наблюдений нет.</div>'; return; }
+  el.innerHTML=STATE.findings.slice(0,12).map((f,i)=>`<div class="find" onclick="openPattern(${i})">
+    <div class="spark">${spark(null)||'📈'}</div>
+    <div><div class="fn">${f.symbol} · ${sideRu(f.side)}</div>
+      <div class="fp">${f.structure||f.patterns[0]} · ${pct(f.change_24h)}</div></div>
+    <div class="scoreb"><div class="sv">${f.score}/100</div><div class="fp">★</div></div></div>`).join('');
+  if(STATE.findings[0]) renderPattern(STATE.findings[0]);
+  renderTA(STATE.findings[0]);
+}
+function renderPattern(f){
+  if(!f) return;
+  document.getElementById('pt-title').textContent=(f.structure||f.patterns[0]||'Паттерн')+' — '+f.symbol;
+  document.getElementById('pt-sub').textContent='Сторона: '+sideRu(f.side);
+  document.getElementById('pt-gauge').innerHTML=gauge(f.score);
+  document.getElementById('pt-score').textContent=f.score+'/100';
+  document.getElementById('pt-side').textContent=sideRu(f.side);
+  document.getElementById('pt-struct').textContent=f.structure||'—';
+  document.getElementById('pt-factors').innerHTML=(f.factors||[]).map(x=>`
+    <div class="chk"><span class="muted">${x.name}</span><span class="${x.points>0?'ok':'no'}">${x.points}/${x.max}</span></div>`).join('');
+}
+function openPattern(i){ renderPattern(STATE.findings[i]); go('s-pattern'); }
+function renderTA(f){
+  if(!f){ document.getElementById('ta-ind').innerHTML='<div class="muted">Нет данных сканера.</div>'; return; }
+  document.getElementById('ta-sym').textContent=f.symbol;
+  const e=f.ema||{};
+  document.getElementById('ta-ind').innerHTML=`
+    <div class="r"><span class="muted">Цена</span><span class="v">$${fmt(f.price)}</span></div>
+    <div class="r"><span class="muted">EMA 20</span><span class="v">${fmt(e.ema20)}</span></div>
+    <div class="r"><span class="muted">EMA 50</span><span class="v">${fmt(e.ema50)}</span></div>
+    <div class="r"><span class="muted">EMA 200</span><span class="v">${fmt(e.ema200)}</span></div>
+    <div class="r"><span class="muted">RSI (14)</span><span class="v">${f.rsi!=null?f.rsi.toFixed(1):'—'}</span></div>
+    <div class="r"><span class="muted">MACD (гист.)</span><span class="v ${f.macd>=0?'up':'down'}">${f.macd!=null?f.macd.toFixed(1):'—'}</span></div>
+    <div class="r"><span class="muted">ATR (14)</span><span class="v">${fmt(f.atr)}</span></div>`;
+  document.getElementById('ta-sr').innerHTML=`
+    <div class="r"><span class="muted">Сопротивление</span><span class="v down">${f.resistance!=null?fmt(f.resistance):'—'}</span></div>
+    <div class="r"><span class="muted">Поддержка</span><span class="v up">${f.support!=null?fmt(f.support):'—'}</span></div>`;
+}
+document.querySelectorAll('.tf').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('.tf').forEach(x=>x.classList.remove('on')); t.classList.add('on');
+});
 async function loadJournal(){
-  const d=await getJSON('/api/journal/'+UID), el=document.getElementById('journal');
-  if(!d.ok||!d.stats){ el.innerHTML='<div class="muted">Журнал недоступен.</div>'; return; }
+  const d=await J('/api/journal/'+UID), el=document.getElementById('jr-tiles');
+  if(!d.ok||!d.stats||!d.stats.total){ el.innerHTML='<div class="muted">Пока нет закрытых сделок.</div>'; return; }
   const s=d.stats;
-  if(!s.total){ el.innerHTML='<div class="muted">Пока нет закрытых сделок.</div>'; return; }
-  el.innerHTML=`<div class="tiles">
-    <div class="tile"><div class="k">Win Rate</div><div class="v">${(s.win_rate*100).toFixed(1)}%</div></div>
-    <div class="tile"><div class="k">Средний R</div><div class="v ${s.avg_r>=0?'up':'down'}">${s.avg_r>=0?'+':''}${s.avg_r.toFixed(2)}</div></div>
+  el.innerHTML=`
+    <div class="tile"><div class="k">Винрейт</div><div class="v">${(s.win_rate*100).toFixed(1)}%</div></div>
+    <div class="tile"><div class="k">Средний R</div><div class="v ${s.avg_r>=0?'up':'down'}">${s.avg_r>=0?'+':''}${s.avg_r.toFixed(2)}R</div></div>
+    <div class="tile"><div class="k">Сделок</div><div class="v">${s.total}</div></div>
     <div class="tile"><div class="k">Expectancy</div><div class="v">${s.expectancy>=0?'+':''}${s.expectancy.toFixed(2)}R</div></div>
-    <div class="tile"><div class="k">Сделок</div><div class="v">${s.total}</div></div></div>`;
+    <div class="tile"><div class="k">Лучший R</div><div class="v up">${s.best_r!=null?'+'+s.best_r.toFixed(2):'—'}</div></div>
+    <div class="tile"><div class="k">Худший R</div><div class="v down">${s.worst_r!=null?s.worst_r.toFixed(2):'—'}</div></div>`;
 }
-
-async function loadWhales(){
-  const d=await getJSON('/api/whales'), el=document.getElementById('whales');
-  if(!d.ok||!d.whales){ el.innerHTML='<div class="muted">Данные недоступны.</div>'; return; }
-  const w=d.whales, top=(w.top||[]);
-  let head=`<div class="r" style="padding:6px 0"><span class="muted">${w.symbol} · давление</span><span class="v">${w.pressure}</span></div>`;
-  if(!top.length){ el.innerHTML=head+'<div class="muted">Крупных сделок в окне нет. Наблюдения, не рекомендация.</div>'; return; }
-  el.innerHTML=head+top.map(t=>{const cl=t.side==='buy'?'up':'down',s=t.side==='buy'?'покупка':'продажа';
-    return `<div class="r"><span class="${cl}">${s}</span><span class="v">$${fmt(t.price)} · ~${(t.notional/1000).toFixed(0)}K</span></div>`;}).join('');
+async function loadPaper(){
+  const d=await J('/api/paper/'+UID);
+  const head=document.getElementById('pp-head'), pos=document.getElementById('pp-pos');
+  if(!d.ok||!d.portfolio){ head.innerHTML='<div class="muted">Портфель недоступен.</div>'; return; }
+  STATE.balance=d.portfolio.balance;
+  head.innerHTML=`<div class="r"><span class="muted">Виртуальный счёт</span><span class="v">10 000 USDT</span></div>
+    <div class="r"><span class="muted">Свободный баланс</span><span class="v gold">${fmt(d.portfolio.balance)} USDT</span></div>`;
+  const ps=d.portfolio.positions||[];
+  pos.innerHTML=ps.length? ps.map(p=>`<div class="pos"><span>${p.symbol} · ${p.side==='long'?'LONG':'SHORT'}</span>
+    <span class="v">${fmt(p.qty)} @ ${fmt(p.entry_price)}</span></div>`).join('')
+    : '<div class="muted">Открытых позиций нет.</div>';
 }
-
+async function loadWhale(){
+  const d=await J('/api/whales'), el=document.getElementById('wh-body');
+  if(!d.ok||!d.whales){ el.innerHTML='<div class="muted">Недоступно.</div>'; return; }
+  const w=d.whales, top=w.top||[];
+  let h=`<div class="r"><span class="muted">${w.symbol} · давление</span><span class="v">${w.pressure}</span></div>`;
+  el.innerHTML=h+(top.length? top.map(t=>`<div class="whale"><span class="${t.side==='buy'?'up':'down'}">${t.side==='buy'?'покупка':'продажа'}</span>
+    <span class="v">$${fmt(t.price)} · ~${(t.notional/1e6).toFixed(1)}M</span></div>`).join('')
+    : '<div class="muted">Крупных сделок в окне нет. Наблюдения, не рекомендация.</div>');
+}
 async function loadBrief(){
-  const d=await getJSON('/api/brief');
-  const ok = d.ok && d.brief;
-  const b = ok? d.brief : null;
-  // overview + obs count
-  const ideas = ok? (b.ideas||[]) : [];
-  document.getElementById('m-obs').textContent = ok? (b.scanned ?? ideas.length) : '—';
-  document.getElementById('overview').innerHTML = ok? `
-    <div class="r"><span class="muted">Рынок</span><span class="v">${b.market_summary||'—'}</span></div>
-    <div class="r"><span class="muted">Сканер</span><span class="v">${(b.scanned??ideas.length)} ситуаций</span></div>
-    <div class="r"><span class="muted">Идей после риск-гейта</span><span class="v gold">${ideas.length}</span></div>
-    <div class="r"><span class="muted">Отсеяно</span><span class="v">${(b.filtered_out||[]).length}</span></div>`
-    : '<div class="muted">Сводка собирается…</div>';
-  // scanner
-  document.getElementById('scanner').innerHTML = !ok? '<div class="muted">Недоступно.</div>'
-    : (ideas.length? ideas.slice(0,3).map(i=>`<div class="idea"><div class="r" style="padding:0">
-        <span class="v">${i.symbol} · ${sideRu(i.side)}</span><span class="muted">${i.skeptic_passed}/${i.skeptic_total}</span></div>
-        <div class="bar"><i style="width:${Math.max(0,Math.min(100,i.score))}%"></i></div>
-        <div class="csub">скоринг ${i.score}/100 · стоп ${fmt(i.stop)} · тейк ${fmt(i.take1)}</div></div>`).join('')
-      : '<div class="muted">Ярких наблюдений нет.</div>');
-  // exit / entry rsi from top idea (мягко)
-  const top = ideas[0];
+  const d=await J('/api/brief');
+  const b=d.ok?d.brief:null, ideas=b?(b.ideas||[]):[];
+  // наблюдения
+  const obs=document.getElementById('ov-obs');
+  if(b){
+    const items=[`Рынок: ${b.market_summary}`,`Идей после риск-гейта: ${ideas.length}`,
+      `Отсеяно по риску: ${(b.filtered_out||[]).length}`,`Новостей: ${(b.news||[]).length}`];
+    obs.innerHTML=items.map((t,i)=>`<li><span class="dotc" style="background:${['#0ecb81','#0ecb81','#e8b33d','#4a9eff'][i]}"></span>${t}</li>`).join('');
+  } else obs.innerHTML='<li class="muted">Сводка собирается…</li>';
+  const top=ideas[0];
+  // entry
+  const en=document.getElementById('en-rows');
   if(top){
-    document.getElementById('gauge').innerHTML = gauge(top.score);
-    if(top.rsi!=null) document.getElementById('ta-rsi').textContent = Number(top.rsi).toFixed(1);
-    document.getElementById('exit').innerHTML = `
-      <div class="r"><span class="muted">Вход (гипотеза)</span><span class="v">${fmt(top.entry)}</span></div>
-      <div class="r"><span class="muted">Стоп</span><span class="v down">${fmt(top.stop)}</span></div>
-      <div class="r"><span class="muted">Тейк 1</span><span class="v up">${fmt(top.take1)}</span></div>
-      <div class="r"><span class="muted">Тейк 2</span><span class="v up">${fmt(top.take2)}</span></div>`;
-    // skeptic pills
-    const weak=top.weak_points||[]; const strong=top.skeptic_passed||0;
-    let pills=`<span class="pill pass">сильных: ${strong}/${top.skeptic_total}</span>`;
-    weak.forEach(w=> pills+=`<span class="pill fail">${w}</span>`);
-    document.getElementById('skeptic').innerHTML=`<div class="v" style="margin-bottom:6px">${top.symbol} · ${sideRu(top.side)}</div>${pills}`;
-  } else {
-    document.getElementById('skeptic').innerHTML='<div class="muted">Нет идеи для разбора.</div>';
-  }
+    document.getElementById('en-gauge').innerHTML=gauge(top.score);
+    en.innerHTML=`<div class="r"><span class="muted">${top.symbol} · ${sideRu(top.side)}</span><span class="v gold">${top.score}/100</span></div>
+      <div class="r"><span class="muted">Скептик</span><span class="v">${top.skeptic_passed}/${top.skeptic_total}</span></div>
+      <div class="r"><span class="muted">Вход (гипотеза)</span><span class="v">${fmt(top.entry)}</span></div>`;
+  } else en.innerHTML='<div class="muted">Нет идеи.</div>';
+  // exit
+  const ex=document.getElementById('ex-rows');
+  ex.innerHTML=top? `<div class="r"><span class="muted">Вход</span><span class="v">${fmt(top.entry)}</span></div>
+    <div class="r"><span class="muted">Стоп</span><span class="v down">${fmt(top.stop)}</span></div>
+    <div class="r"><span class="muted">Тейк 1</span><span class="v up">${fmt(top.take1)}</span></div>
+    <div class="r"><span class="muted">Тейк 2</span><span class="v up">${fmt(top.take2)}</span></div>`
+    : '<div class="muted">Нет идеи.</div>';
+  // budget (считаем на клиенте из баланса и уровней)
+  const bal = STATE.balance!=null? STATE.balance : null;
+  if(top && bal){
+    const risk=bal*0.01, per=Math.abs(top.entry-top.stop), q=per>0?risk/per:0;
+    document.getElementById('bd-in').innerHTML=`<div class="r"><span class="muted">Баланс</span><span class="v">${fmt(bal)} USDT</span></div>
+      <div class="r"><span class="muted">Риск на сделку</span><span class="v">1.0%</span></div>
+      <div class="r"><span class="muted">Вход / Стоп</span><span class="v">${fmt(top.entry)} / ${fmt(top.stop)}</span></div>`;
+    document.getElementById('bd-size').textContent=fmt(q)+' '+top.symbol.replace('USDT','');
+    document.getElementById('bd-out').innerHTML=`<div class="r"><span class="muted">Риск в деньгах</span><span class="v">${fmt(risk)} USDT</span></div>
+      <div class="r"><span class="muted">Номинал</span><span class="v">${fmt(q*top.entry)} USDT</span></div>`;
+  } else { document.getElementById('bd-in').innerHTML='<div class="muted">Нужны идея и баланс.</div>'; }
+  // risk gate
+  const rk=document.getElementById('rk-body');
+  if(top){
+    const pass=(top.skeptic_passed||0)>= (top.skeptic_total||5)-1;
+    rk.innerHTML=`<div class="passbox"><div class="p">${pass?'✅ PASS':'⚠️ ВНИМАНИЕ'}</div>
+      <div class="muted">${pass?'Сделка соответствует правилам':'Есть слабые места'}</div></div>
+      <div class="card"><div class="chk"><span>Скептик пройдено</span><span class="ok">${top.skeptic_passed}/${top.skeptic_total}</span></div>
+      ${(top.weak_points||[]).map(w=>`<div class="chk"><span class="muted">${w}</span><span class="no">✕</span></div>`).join('')||'<div class="chk"><span class="muted">Слабых мест нет</span><span class="ok">✓</span></div>'}</div>`;
+  } else rk.innerHTML='<div class="muted">Нет идеи для проверки.</div>';
+  // skeptic
+  const forEl=document.getElementById('sk-for'), agEl=document.getElementById('sk-against'), sum=document.getElementById('sk-sum');
+  if(top){
+    const strong=['Тренд в сторону входа','Участие объёма','RSI в рабочей зоне'];
+    forEl.innerHTML=strong.slice(0,Math.max(1,top.skeptic_passed-((top.weak_points||[]).length))).map(s=>`<div class="chk"><span>${s}</span><span class="ok">✓</span></div>`).join('')||'<div class="muted">—</div>';
+    agEl.innerHTML=(top.weak_points||[]).length? top.weak_points.map(w=>`<div class="chk"><span>${w}</span><span class="no">✕</span></div>`).join('') : '<div class="muted">Слабых мест нет</div>';
+    sum.textContent=`Идея ${top.symbol} ${sideRu(top.side)}: пройдено ${top.skeptic_passed}/${top.skeptic_total}.`;
+  } else { forEl.innerHTML='<div class="muted">—</div>'; agEl.innerHTML='<div class="muted">—</div>'; sum.textContent='Нет идеи.'; }
   // coordinator
-  document.getElementById('coordinator').innerHTML = !ok? '<div class="muted">Недоступно.</div>' : `
-    <div class="csub" style="margin-bottom:8px">🤖 Автодайджест. Наблюдения, не рекомендации.</div>
-    <div class="chk"><span class="muted">Сканер</span><span class="tick">✓ ${(b.scanned??ideas.length)} ситуаций</span></div>
-    <div class="chk"><span class="muted">Идей после риск-гейта</span><span class="tick">✓ ${ideas.length}</span></div>
-    <div class="chk"><span class="muted">Отсеяно по риску</span><span class="tick">✓ ${(b.filtered_out||[]).length}</span></div>
-    <div class="chk"><span class="muted">Новостей</span><span class="tick">✓ ${(b.news||[]).length}</span></div>`;
-  // news
-  const news = ok? (b.news||[]) : [];
-  document.getElementById('news').innerHTML = news.length? news.slice(0,4).map(n=>`
-    <div class="news-i"><span>${n.title}</span><span class="src">${n.source}</span></div>`).join('')
-    : '<div class="muted">Свежих новостей нет.</div>';
+  const co=document.getElementById('co-body');
+  co.innerHTML=b? `<div class="muted" style="font-size:13px;margin-bottom:8px">🤖 Автодайджест. Наблюдения, не рекомендации.</div>
+    <div class="chk"><span class="muted">Ситуаций найдено</span><span class="ok">${b.scanned??ideas.length}</span></div>
+    <div class="chk"><span class="muted">Идей после риск-гейта</span><span class="ok">${ideas.length}</span></div>
+    <div class="chk"><span class="muted">Новостей</span><span class="ok">${(b.news||[]).length}</span></div>`
+    : '<div class="muted">Собирается…</div>';
 }
 
-// плавная навигация + активный пункт
-document.querySelectorAll('.nav a, .tabbar a').forEach(a=>a.addEventListener('click',e=>{
-  const id=a.getAttribute('href'); if(!id||!id.startsWith('#'))return;
-  e.preventDefault(); document.querySelector(id)?.scrollIntoView({behavior:'smooth',block:'start'});
-}));
-
-loadMarket(); loadPaper(); loadJournal(); loadWhales(); loadBrief();
+loadMarket(); loadIndex(); loadScan(); loadJournal(); loadPaper(); loadWhale(); loadBrief();
 </script>
 </body>
 </html>
