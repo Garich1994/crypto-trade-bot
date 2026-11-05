@@ -31,6 +31,7 @@ SCAN_TOP = 30          # сколько пар берём у сканера
 MIN_SCORE = int(os.environ.get("BEST_MIN_SCORE", "70"))  # порог качества сетапа
 TOP_N = 10             # сколько идей отдаём
 INTERVAL = 1800        # пересчёт раз в 30 минут
+STARTUP_DELAY = 25     # при старте дать прогреться scan/brief/index, затем считать идеи
 EMPTY_TEXT = "Сильных сетапов по правилам сейчас нет"
 
 AUTO_REFRESH = True    # в тестах выключается
@@ -157,7 +158,9 @@ async def best_ideas(top_n: int = TOP_N) -> list[dict]:
 
 
 async def _loop() -> None:
-    """Фоновый пересчёт каждые 30 минут. Первый прогон — сразу при старте."""
+    """Фоновый пересчёт каждые 30 минут. Старт отложен на STARTUP_DELAY, чтобы при
+    рестарте сначала прогрелись пользовательские кэши (scan/brief/index)."""
+    await asyncio.sleep(STARTUP_DELAY)
     while True:
         await refresh_now()
         await asyncio.sleep(INTERVAL)

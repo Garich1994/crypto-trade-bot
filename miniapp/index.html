@@ -124,6 +124,8 @@
   .tfs,.tabs{display:flex;gap:8px;margin:0 0 14px}
   .tf,.tb{padding:9px 18px;border-radius:10px;border:1px solid var(--line);font-size:13px;color:var(--muted);cursor:pointer}
   .tf.on,.tb.on{color:#1a1205;background:linear-gradient(135deg,var(--gold),var(--gold2));border-color:var(--gold);font-weight:700}
+  .psel{flex:1;max-width:260px;padding:9px 12px;border-radius:10px;border:1px solid var(--line2);background:var(--card2);color:var(--text);font-size:13.5px;cursor:pointer}
+  .psel:focus{outline:none;border-color:var(--gold)}
 
   .tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
   .tile{background:var(--card2);border:1px solid var(--line);border-radius:11px;padding:13px;text-align:center}
@@ -320,6 +322,9 @@
   <section class="screen" id="s-exit" data-title="Выход">
     <div class="shead"><div class="ic">🚪</div><div><h1>Exit Planner</h1><div class="sub" id="ex-sym">План выхода</div></div></div>
     <div class="narrow">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <span class="muted" style="font-size:13px">Пара</span>
+        <select id="ex-pair" class="psel"><option>BTCUSDT</option></select></div>
       <div class="tabs" id="ex-tabs"><div class="tb" data-mult="2.0">Консервативная</div><div class="tb on" data-mult="1.5">Базовая</div><div class="tb" data-mult="1.0">Агрессивная</div></div>
       <div class="card"><div class="rows" id="ex-rows"><div class="muted">Загрузка…</div></div>
         <div class="hint" id="ex-hint">Арифметика от ATR и уровней, не рекомендация.</div></div>
@@ -559,7 +564,7 @@ async function loadOverview(){
 /* ===== scanner (sortable table + filters) ===== */
 function scanPred(f,filter){
   if(filter==='all')return true;
-  if(filter==='rsi')return (f.rsi!=null)&&(f.rsi<30);              // только перепроданность
+  if(filter==='rsi'){ const r=(f.rsi==null)?null:Number(f.rsi.toFixed(1)); return r!=null&&r<30; } // только RSI<30 (как показано)
   if(filter==='pattern')return !!f.structure;                      // распознан паттерн (поле structure)
   if(filter==='breakout')return !!f.breakout;                      // пробой (флаг breakout)
   if(filter==='volume')return (f.vol_ratio||0)>=1.5;               // всплеск объёма
@@ -590,7 +595,7 @@ function renderScanList(){
     <td class="hide-m">${mini}</td>
     <td class="num">${fmt(f.price)}</td>
     <td class="num ${(f.change_24h||0)>=0?'up':'down'}">${pct(f.change_24h)}</td>
-    <td class="num">${f.rsi!=null?f.rsi.toFixed(0):'—'}</td>
+    <td class="num">${f.rsi!=null?f.rsi.toFixed(1):'—'}</td>
     <td class="num hide-m">x${(f.vol_ratio||0).toFixed(1)}</td>
     <td class="hide-m"><span class="badge">${f.structure||(f.patterns&&f.patterns[0])||'—'}</span></td>
     <td class="num"><span class="sv">${f.score}</span></td></tr>`;}).join('');
@@ -722,7 +727,16 @@ async function loadEntry(){
   document.getElementById('en-summary').textContent=e.summary||'';
   document.getElementById('en-cond').innerHTML=(e.factors||[]).map(f=>`<div class="chk"><span class="muted">${f.label}</span><span class="${f.points>=0?'pass':'fail'}">${f.points>0?'+':''}${f.points}</span></div>`).join('');
 }
+async function fillExitPairs(){
+  const sel=document.getElementById('ex-pair'); if(!sel)return;
+  if(!STATE.findings||!STATE.findings.length){ const sc=await J('/api/scan'); if(sc.ok&&sc.findings)STATE.findings=sc.findings; }
+  const opts=(STATE.findings||[]).slice(0,30);
+  // гарантируем, что текущая пара есть в списке
+  if(STATE.symbol&&!opts.some(f=>f.symbol===STATE.symbol)) opts.unshift({symbol:STATE.symbol,side:STATE.side});
+  sel.innerHTML=opts.map(f=>`<option value="${f.symbol}" ${f.symbol===STATE.symbol?'selected':''}>${f.symbol} · ${sideRu(f.side||'long')}</option>`).join('');
+}
 async function loadExit(){
+  await fillExitPairs();
   document.getElementById('ex-sym').textContent=STATE.symbol+' · '+sideRu(STATE.side);
   document.querySelectorAll('#ex-tabs .tb').forEach(t=>t.classList.toggle('on',t.dataset.mult===STATE.exitMult));
   const el=document.getElementById('ex-rows'); el.innerHTML='<div class="muted">Загрузка…</div>';
@@ -738,6 +752,12 @@ async function loadExit(){
   document.getElementById('ex-hint').innerHTML=`Пресет: <b>${names[mult]||mult}</b> (×${mult} ATR). Арифметика от ATR и уровней, не рекомендация.`;
 }
 document.querySelectorAll('#ex-tabs .tb').forEach(t=>t.onclick=()=>{STATE.exitMult=t.dataset.mult;loadExit();});
+document.getElementById('ex-pair').onchange=function(){
+  const f=(STATE.findings||[]).find(x=>x.symbol===this.value);
+  STATE.symbol=this.value;
+  if(f){ STATE.side=f.side; STATE.entry=f.price; } else { STATE.entry=null; }
+  loadExit();
+};
 async function loadBudget(){
   document.getElementById('bd-in').innerHTML='<div class="muted">Загрузка…</div>'; document.getElementById('bd-size').textContent='—'; document.getElementById('bd-out').innerHTML='';
   const bal=(!GUEST)?await (async()=>{const pf=await J('/api/paper/'+UID);return (pf.ok&&pf.portfolio)?pf.portfolio.balance:10000;})():10000;
