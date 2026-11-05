@@ -1,7 +1,9 @@
 """Autopush Agent (Signal Watcher) — автономный пуш наблюдений.
 
-По кругу прогоняет coordinator.build_brief() и пушит только сильные наблюдения:
-сила сетапа ≥ 75 И риск-гейт PASS (идея не отсеяна) И скептик без FAIL.
+Источник идей — единый кэш best_setups (тот же топ-10, что на сайте и в /best).
+Автопуш ничего не пересчитывает сам: если кэш ещё пуст (warming) — цикл
+пропускается. Порог для пуша строже, чем для сайта: сила сетапа ≥ 75
+(на сайте ≥ 70) И скептик 5/5 И риск-гейт PASS.
 Антиспам: пара+сторона не чаще раза в 12ч, максимум 5 пушей в сутки на
 пользователя, тихий час 00:00–07:00 America/New_York. Это наблюдения, не советы.
 """
@@ -11,7 +13,9 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from agents.coordinator_agent import build_brief
+import agents.best_setups as best_setups
+
+SOURCE = "best_setups"       # единый источник идей (сайт /api/best, бот /best)
 
 try:
     from zoneinfo import ZoneInfo
@@ -157,6 +161,40 @@ def _record_push(con, user_id: int, pair: str, direction: str, now: datetime) ->
     )
 
 
+def _from_best(d: dict) -> dict:
+    """Привести идею best_setups к форме, которую ждут evaluate_push и format_push."""
+    sk = d.get("skeptic") or {}
+    return {
+        "symbol": str(d.get("pair", "")).upper(),
+        "side": d.get("side"),
+        "setup_score": d.get("score"),
+        "setup_factors": [
+            {"name": f.get("label") or f.get("name", ""), "points": f.get("points", 0)}
+            for f in (d.get("factors") or [])
+        ],
+        "score": d.get("score"),
+        "entry": d.get("entry"),
+        "stop": d.get("stop"),
+        "take1": d.get("take1"),
+        "take2": d.get("take2"),
+        "skeptic_passed": sk.get("passed"),
+        "skeptic_total": sk.get("total"),
+        "risk_gate": d.get("risk_gate"),
+        "weak_points": [],
+    }
+
+
+def source_status() -> dict:
+    """Источник идей и время последнего пересчёта (для /autopush status)."""
+    cache = best_setups.get_cached()
+    return {
+        "source": SOURCE,
+        "ready": cache is not None,
+        "updated_at": (cache or {}).get("updated_at"),
+        "count": len((cache or {}).get("ideas", [])),
+    }
+
+
 def _idea_qualifies(idea: dict) -> bool:
     score = idea.get("setup_score")
     if score is None:
@@ -165,6 +203,9 @@ def _idea_qualifies(idea: dict) -> bool:
         return False
     # скептик без FAIL (все проверки пройдены)
     if idea.get("skeptic_passed") != idea.get("skeptic_total"):
+        return False
+    # риск-гейт должен быть PASS, если поле присутствует (идеи best_setups его несут)
+    if idea.get("risk_gate") not in (None, "PASS"):
         return False
     return True
 
@@ -195,15 +236,22 @@ def evaluate_push(brief: dict, user_id: int, now: datetime | None = None) -> lis
     return pushes
 
 
-async def run_push_cycle(builder=None, now: datetime | None = None) -> list[dict]:
-    """Прогнать цикл автопуша по всем due-подписчикам. Возвращает события пуша."""
-    builder = builder or build_brief
+async def run_push_cycle(now: datetime | None = None, cache=None) -> list[dict]:
+    """Прогнать цикл автопуша по due-подписчикам из кэша best_setups.
+
+    Автопуш НЕ пересчитывает конвейер сам: если кэш ещё пуст (warming) — цикл
+    пропускается (пустой список). Источник идей — тот же топ-10, что и на сайте.
+    """
     now = now or _now()
     due = due_subscriptions(now)
     if not due:
         return []
 
-    brief = await builder(top=5)
+    data = cache if cache is not None else best_setups.get_cached()
+    if not data:                       # кэш ещё не прогрет — пропускаем цикл,
+        return []                      # подписчиков НЕ помечаем (останутся due)
+
+    brief = {"ideas": [_from_best(d) for d in data.get("ideas", [])]}
     events: list[dict] = []
     for user_id in due:
         for idea in evaluate_push(brief, user_id, now):

@@ -87,6 +87,7 @@ async def _evaluate_pair(finding: dict, timeframe: str, min_score: int) -> list[
             "pair": symbol,
             "side": side,
             "score": sc["score"],
+            "factors": sc.get("factors", []),   # факторы входа (для текста пуша)
             "entry": ex["entry"],
             "stop": ex["stop"],
             "take1": ex["take1"],

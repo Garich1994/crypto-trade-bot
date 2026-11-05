@@ -1673,6 +1673,71 @@ def _check_autopush(errors: list[str]) -> None:
         print("  -----------------------")
 
 
+async def _check_autopush_source(errors: list[str]) -> None:
+    """Автопуш из кэша best_setups: score≥75 пушится, 72 — нет, дубль блок, warming — пропуск."""
+    print("\n— Проверяю источник автопуша (best_setups) …")
+    before = len(errors)
+    tmp_dir = tempfile.mkdtemp(prefix="pushsrc_selftest_")
+    uid, uid2 = 111, 333
+    day = datetime(2026, 1, 15, 15, 0, tzinfo=timezone.utc)  # 10:00 NY, не тихий час
+    saved_cache = dict(best_setups._CACHE)
+
+    def _idea(pair, score):
+        return {"pair": pair, "side": "long", "score": score,
+                "factors": [{"label": "RSI 55 — нейтрально", "points": 10}],
+                "entry": 67400, "stop": 65258, "take1": 70618, "take2": 72264,
+                "rr1": 1.5, "rr2": 2.0, "skeptic": {"passed": 5, "total": 5, "verdict": "ok"},
+                "risk_gate": "PASS", "rsi": 55, "pattern": "breakout"}
+
+    cache_data = {"ideas": [_idea("BTCUSDT", 80), _idea("ETHUSDT", 72)],
+                  "scanned": 2, "passed": 1,
+                  "updated_at": "2026-01-15T14:59:00+00:00"}
+    try:
+        autopush.set_db_path(f"{tmp_dir}/push.db")
+        autopush.set_autopush(uid, active=True, interval_h=1)
+
+        # score 80 пушится, 72 (ниже 75) — нет.
+        events = await autopush.run_push_cycle(now=day, cache=cache_data)
+        syms = [e["idea"]["symbol"] for e in events]
+        if syms != ["BTCUSDT"]:
+            errors.append(f"autopush-src: ожидался пуш только BTCUSDT, получено {syms}")
+
+        # Дубль пара+сторона в окне 12ч — второго пуша нет.
+        again = await autopush.run_push_cycle(now=day, cache=cache_data)
+        if any(e["idea"]["symbol"] == "BTCUSDT" for e in again):
+            errors.append("autopush-src: дубль пары в окне 12ч не отфильтрован")
+
+        # Текст пуша из идеи best_setups собирается корректно (формат не тронут).
+        if events:
+            msg = format_push(events[0]["idea"])
+            _check_forbidden(msg, "autopush-src", errors)
+            if "Сила сетапа 80/100" not in msg:
+                errors.append(f"autopush-src: формат пуша неполный ({msg!r})")
+
+        # Warming: кэш пуст — цикл пропускается, подписчик остаётся due (не помечен).
+        autopush.set_autopush(uid2, active=True, interval_h=1)
+        best_setups._CACHE.update({"data": None, "updated_at": None})
+        warm = await autopush.run_push_cycle(now=day)   # читает пустой глобальный кэш
+        if warm:
+            errors.append(f"autopush-src: на warming были пуши ({warm})")
+        if uid2 not in autopush.due_subscriptions(day):
+            errors.append("autopush-src: на warming подписчик ошибочно помечен (не остался due)")
+
+        # source_status отражает источник и время пересчёта.
+        best_setups._CACHE.update({"data": cache_data, "updated_at": cache_data["updated_at"]})
+        st = autopush.source_status()
+        if st["source"] != "best_setups" or not st["updated_at"] or st["count"] != 2:
+            errors.append(f"autopush-src: source_status неполный ({st})")
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"autopush-src: упал — {exc!r}")
+    finally:
+        best_setups._CACHE.update(saved_cache)
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    if len(errors) == before:
+        print(f"  {OK} из best_setups: score≥75 пуш, 72 нет, дубль блок, warming пропуск, status ок")
+
+
 async def _run() -> int:
     pairs = [("BTCUSDT", "1h"), ("ETHUSDT", "1h")]
     errors: list[str] = []
@@ -1726,6 +1791,7 @@ async def _run() -> int:
     await _check_best_setups(errors)
     _check_index_html(errors)
     _check_autopush(errors)
+    await _check_autopush_source(errors)
 
     print()
     if errors:

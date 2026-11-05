@@ -26,6 +26,7 @@ from agents.autopush_agent import (
     AutopushError,
     get_autopush,
     set_autopush,
+    source_status as autopush_source_status,
 )
 from agents.backtest_agent import BacktestError, backtest
 from agents.broker_agent import (
@@ -1171,8 +1172,19 @@ async def cmd_autopush(message: Message, command: CommandObject) -> None:
             txt = f"включён, каждые {sub['interval_h']:g} ч"
         else:
             txt = "выключен"
+        st = autopush_source_status()
+        if st["updated_at"]:
+            try:
+                src_when = datetime.fromisoformat(st["updated_at"]).strftime("%H:%M UTC")
+            except (ValueError, TypeError):
+                src_when = st["updated_at"]
+            src_line = (f"Источник: {st['source']} (идей {st['count']}, "
+                        f"пересчёт {src_when}).\n")
+        else:
+            src_line = f"Источник: {st['source']} (ещё считается).\n"
         await message.answer(
             f"🔔 Автопуш наблюдений: {txt}.\n"
+            + src_line +
             "Порог: сила сетапа ≥ 75, риск-гейт PASS, скептик без FAIL.\n"
             "Антиспам: пара+сторона раз в 12ч, ≤5 в сутки, тихий час 00:00–07:00 (NY).\n"
             "Включить: /autopush on [часы] · выключить: /autopush off"
