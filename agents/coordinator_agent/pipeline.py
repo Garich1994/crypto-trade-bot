@@ -72,6 +72,9 @@ async def build_brief(
             "symbol": symbol,
             "side": side,
             "score": sc["score"],
+            # Сила сетапа и факторы из сканера (если пара пришла от сканера).
+            "setup_score": cand.get("score"),
+            "setup_factors": cand.get("factors"),
             "entry": price,
             "stop": ex["stop"],
             "take1": ex["take1"],
