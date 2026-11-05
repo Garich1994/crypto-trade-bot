@@ -3,6 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>CryptoPilot</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
@@ -25,6 +28,7 @@
   .back{width:34px;height:34px;border-radius:10px;border:1px solid var(--line);background:var(--card);
     display:none;align-items:center;justify-content:center;cursor:pointer;font-size:20px;color:var(--gold)}
   .back.show{display:flex}
+  #hdr-clock{font-variant-numeric:tabular-nums;font-size:12px}
 
   .screen{display:none;padding:2px 15px 0;animation:fade .2s ease}
   .screen.active{display:block}
@@ -57,6 +61,7 @@
 
   .cta{display:block;width:100%;text-align:center;padding:14px;border-radius:14px;font-weight:800;font-size:15px;color:#1a1205;
     background:linear-gradient(135deg,var(--gold),var(--gold2));border:none;cursor:pointer;margin:4px 0 14px;box-shadow:0 6px 20px rgba(232,179,61,.25)}
+  .cta.ghost{color:var(--gold);background:transparent;border:1px solid rgba(232,179,61,.5);box-shadow:none}
 
   .grid4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:9px}
   .gbtn{background:linear-gradient(180deg,var(--card),var(--bg2));border:1px solid rgba(232,179,61,.28);border-radius:14px;padding:13px 6px;text-align:center;cursor:pointer}
@@ -71,6 +76,7 @@
   .find .mini{flex:0 0 58px;height:34px}
   .badge{display:inline-block;font-size:10.5px;font-weight:700;padding:1px 8px;border-radius:999px;color:var(--green);background:rgba(14,203,129,.13);margin-top:3px}
   .scoreb{margin-left:auto;text-align:right} .scoreb .sv{font-weight:800;color:var(--gold)}
+  .srcnote{font-size:11px;color:var(--muted);line-height:1.45;margin-bottom:11px}
 
   .chart{width:100%;height:150px;background:var(--bg2);border:1px solid var(--line);border-radius:12px;overflow:hidden}
   .chart.sm{height:120px}
@@ -100,20 +106,28 @@
   .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .posrow,.whalerow,.toggle{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid var(--line)}
   .posrow:first-child,.whalerow:first-child,.toggle:first-child{border-top:0}
-  .sw{width:42px;height:23px;border-radius:999px;background:var(--green);position:relative;flex:0 0 42px}
-  .sw.off{background:var(--line)} .sw::after{content:"";position:absolute;top:2px;right:2px;width:19px;height:19px;border-radius:50%;background:#fff}
+  .toggle>span:first-child{cursor:pointer}
+  .sw{width:42px;height:23px;border-radius:999px;background:var(--green);position:relative;flex:0 0 42px;cursor:pointer;transition:background .15s}
+  .sw.off{background:var(--line)} .sw::after{content:"";position:absolute;top:2px;right:2px;width:19px;height:19px;border-radius:50%;background:#fff;transition:all .15s}
   .sw.off::after{right:auto;left:2px}
+  .agentrow{display:flex;align-items:center;justify-content:space-between;padding:11px 0;border-top:1px solid var(--line);cursor:pointer}
+  .agentrow:first-child{border-top:0} .agentrow .chev{color:var(--gold);font-size:18px}
   .news-i{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid var(--line);font-size:13.5px}
   .news-i:first-child{border-top:0} .src{font-size:11px;color:var(--gold);white-space:nowrap}
   .hint{font-size:11.5px;color:var(--muted);margin-top:9px}
   .ringc{position:relative;display:flex;align-items:center;justify-content:center}
   .ringc .rt{position:absolute;text-align:center}
   .ringc .rt .big{font-size:26px;font-weight:900} .ringc .rt .lb{font-size:11px;color:var(--muted)}
+  .guest{border:1px solid rgba(232,179,61,.45);background:radial-gradient(circle at 30% 0,rgba(232,179,61,.1),rgba(232,179,61,.02))}
+  .acts{display:flex;gap:9px;margin-top:4px}
+  .acts>button{flex:1;padding:12px;border-radius:12px;font-weight:800;font-size:14px;cursor:pointer}
+  .acts .buy{color:#1a1205;background:linear-gradient(135deg,var(--gold),var(--gold2));border:none}
+  .acts .snap{color:var(--gold);background:transparent;border:1px solid rgba(232,179,61,.5)}
 
   .bottom{position:fixed;left:0;right:0;bottom:0;max-width:468px;margin:0 auto;z-index:28}
   .disc{text-align:center;font-size:11px;color:var(--muted);background:rgba(6,8,12,.94);padding:6px 10px;border-top:1px solid var(--line)}
   .tabbar{display:flex;align-items:center;justify-content:space-around;background:rgba(11,14,20,.98);
-    padding:8px 6px calc(8px + env(safe-area-inset-bottom));backdrop-filter:blur(10px)}
+    padding:8px 2px calc(8px + env(safe-area-inset-bottom));backdrop-filter:blur(10px)}
   .tab{display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--muted);font-size:10.5px;cursor:pointer}
   .tab .ti{font-size:19px} .tab.on{color:var(--gold)}
 </style>
@@ -125,11 +139,12 @@
       <div class="back" id="back">‹</div>
       <div class="brand"><svg class="mono" viewBox="0 0 32 32" fill="none"><rect x="1" y="1" width="30" height="30" rx="8" stroke="#e8b33d" stroke-width="1.5"/><path d="M7 21l5-6 4 3 7-9" stroke="#e8b33d" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="23" cy="9" r="2" fill="#e8b33d"/></svg><span>Crypto<span class="b">Pilot</span></span></div>
     </div>
-    <div class="muted" id="hdr-upd" style="font-size:11px">—</div>
+    <div class="muted" id="hdr-clock">—</div>
   </div>
 
   <!-- 1. ОБЗОР -->
   <section class="screen active" id="s-overview" data-title="Обзор">
+    <div class="card guest" id="ov-guest" style="display:none"></div>
     <div class="coins" id="ov-coins"><div class="muted">Загрузка…</div></div>
     <div class="card glow">
       <div class="gaugewrap"><div id="ov-gauge"></div>
@@ -144,13 +159,13 @@
     <div class="card"><div class="h2">⚡ Ключевые наблюдения</div><ul class="obs" id="ov-obs"><li class="muted">Загрузка…</li></ul></div>
     <button class="cta" onclick="go('s-scanner')">🔍 Открыть сканер</button>
     <div class="grid4">
-      <div class="gbtn" onclick="go('s-scanner')"><div class="gi">🔍</div><div class="gt">Сканер</div></div>
       <div class="gbtn" onclick="go('s-ta')"><div class="gi">📊</div><div class="gt">Аналитика</div></div>
       <div class="gbtn" onclick="go('s-entry')"><div class="gi">⏱</div><div class="gt">Вход</div></div>
       <div class="gbtn" onclick="go('s-exit')"><div class="gi">🚪</div><div class="gt">Выход</div></div>
       <div class="gbtn" onclick="go('s-budget')"><div class="gi">💼</div><div class="gt">Бюджет</div></div>
       <div class="gbtn" onclick="go('s-risk')"><div class="gi">🛡</div><div class="gt">Риск</div></div>
-      <div class="gbtn" onclick="go('s-paper')"><div class="gi">🧪</div><div class="gt">Портфель</div></div>
+      <div class="gbtn" onclick="go('s-skeptic')"><div class="gi">🧠</div><div class="gt">Skeptic</div></div>
+      <div class="gbtn" onclick="go('s-whale')"><div class="gi">🐋</div><div class="gt">Whale</div></div>
       <div class="gbtn" onclick="go('s-alerts')"><div class="gi">🔔</div><div class="gt">Алерты</div></div>
     </div>
   </section>
@@ -158,8 +173,11 @@
   <!-- 2. СКАНЕР -->
   <section class="screen" id="s-scanner" data-title="Сканер">
     <div class="shead"><div class="ic">🔍</div><div><h1>Сканер рынка</h1><div class="sub">Поиск наблюдений и паттернов</div></div></div>
-    <div class="chips"><span class="chip on">Все</span><span class="chip">Паттерны</span><span class="chip">Пробои</span><span class="chip">Объём</span><span class="chip">RSI</span></div>
-    <div class="card"><div id="sc-list"><div class="muted">Загрузка…</div></div></div>
+    <div class="srcnote">Топ-30 USDT-пар Binance по объёму 24ч, скоринг паттернов по правилам (тренд/объём/RSI/уровни/структура). Не рекомендация.</div>
+    <div class="chips" id="sc-chips">
+      <span class="chip on" data-f="all">Все</span><span class="chip" data-f="pattern">Паттерны</span>
+      <span class="chip" data-f="breakout">Пробои</span><span class="chip" data-f="volume">Объём</span><span class="chip" data-f="rsi">RSI</span></div>
+    <div class="card"><div id="sc-upd" class="muted" style="font-size:11px;margin-bottom:8px"></div><div id="sc-list"><div class="muted">Загрузка…</div></div></div>
   </section>
 
   <!-- 3. ДЕТАЛИ ПАТТЕРНА -->
@@ -175,6 +193,7 @@
       <div class="lvls" id="pt-lvls"></div>
       <div class="hint">Качество сетапа по правилам, НЕ вероятность успеха.</div></div>
     <div class="card"><div class="h2">Факторы</div><div id="pt-factors"></div></div>
+    <div class="acts"><button class="snap" onclick="go('s-ta')">📊 Аналитика</button><button class="snap" onclick="go('s-exit')">🚪 План выхода</button></div>
   </section>
 
   <!-- 4. АНАЛИТИКА (ТА) -->
@@ -189,7 +208,8 @@
   <!-- 5. ЖУРНАЛ -->
   <section class="screen" id="s-journal" data-title="Журнал">
     <div class="shead"><div class="ic">📒</div><div><h1>Журнал сделок</h1><div class="sub">Учёт, статистика и анализ</div></div></div>
-    <div class="card"><div class="tiles" id="jr-tiles"><div class="muted">Загрузка…</div></div></div>
+    <div class="card"><div class="h2">Статистика</div><div class="tiles" id="jr-tiles"><div class="muted">Загрузка…</div></div></div>
+    <div class="card"><div class="h2">Последние сделки</div><div id="jr-list"><div class="muted">Загрузка…</div></div></div>
   </section>
 
   <!-- 6. TIME MACHINE -->
@@ -210,9 +230,9 @@
   <!-- 8. EXIT PLANNER -->
   <section class="screen" id="s-exit" data-title="Exit Planner">
     <div class="shead"><div class="ic">🚪</div><div><h1>Exit Planner</h1><div class="sub" id="ex-sym">План выхода</div></div></div>
-    <div class="tabs"><div class="tb">Консервативная</div><div class="tb on">Базовая</div><div class="tb">Агрессивная</div></div>
+    <div class="tabs" id="ex-tabs"><div class="tb" data-mult="2.0">Консервативная</div><div class="tb on" data-mult="1.5">Базовая</div><div class="tb" data-mult="1.0">Агрессивная</div></div>
     <div class="card"><div class="rows" id="ex-rows"><div class="muted">Загрузка…</div></div>
-      <div class="hint">Арифметика от ATR и уровней, не рекомендация.</div></div>
+      <div class="hint" id="ex-hint">Арифметика от ATR и уровней, не рекомендация.</div></div>
   </section>
 
   <!-- 9. BUDGET -->
@@ -233,7 +253,9 @@
   <!-- 11. PAPER EXECUTOR -->
   <section class="screen" id="s-paper" data-title="Paper Executor">
     <div class="shead"><div class="ic">🧪</div><div><h1>Paper Executor</h1><div class="sub">Виртуальная торговля (демо)</div></div></div>
-    <div class="card"><div class="rows" id="pp-head"><div class="muted">Загрузка…</div></div></div>
+    <div class="card"><div class="rows" id="pp-head"><div class="muted">Загрузка…</div></div>
+      <div class="acts"><button class="snap" onclick="loadPaper()">📸 Сделать снимок</button><button class="buy" onclick="paperBuyHint()">КУПИТЬ (демо)</button></div>
+      <div class="hint" id="pp-note">Виртуальный счёт для обучения. Сделки — командами в боте: <b>/paperbuy ПАРА КОЛ-ВО</b>, <b>/paperclose ID</b>.</div></div>
     <div class="card"><div class="h2">Открытые позиции</div><div id="pp-pos"></div></div>
     <div class="card"><div class="h2">Статистика</div><div class="tiles" id="pp-stats"></div></div>
   </section>
@@ -256,12 +278,12 @@
   <section class="screen" id="s-coordinator" data-title="Coordinator">
     <div class="shead"><div class="ic">🧭</div><div><h1>Coordinator</h1><div class="sub">Оркестрация AI-агентов</div></div></div>
     <div class="card" id="co-body"><div class="muted">Загрузка…</div></div>
-    <div class="card"><div class="h2">Агенты</div>
-      <div class="toggle"><span>Сканер (поиск наблюдений)</span><span class="sw"></span></div>
-      <div class="toggle"><span>Аналитик (ТА и уровни)</span><span class="sw"></span></div>
-      <div class="toggle"><span>Риск-менеджер</span><span class="sw"></span></div>
-      <div class="toggle"><span>Skeptic (проверка идеи)</span><span class="sw"></span></div>
-      <div class="toggle"><span>Новости (мониторинг)</span><span class="sw"></span></div>
+    <div class="card"><div class="h2">Агенты (нажми — откроется)</div>
+      <div class="agentrow" onclick="go('s-scanner')"><span>Сканер (поиск наблюдений)</span><span class="sw" data-key="ag-scanner" onclick="tgl(event,this)"></span></div>
+      <div class="agentrow" onclick="go('s-ta')"><span>Аналитик (ТА и уровни)</span><span class="sw" data-key="ag-ta" onclick="tgl(event,this)"></span></div>
+      <div class="agentrow" onclick="go('s-risk')"><span>Риск-менеджер</span><span class="sw" data-key="ag-risk" onclick="tgl(event,this)"></span></div>
+      <div class="agentrow" onclick="go('s-skeptic')"><span>Skeptic (проверка идеи)</span><span class="sw" data-key="ag-skeptic" onclick="tgl(event,this)"></span></div>
+      <div class="agentrow" onclick="go('s-whale')"><span>Whale Tracker (крупные сделки)</span><span class="sw" data-key="ag-whale" onclick="tgl(event,this)"></span></div>
     </div>
   </section>
 
@@ -270,10 +292,10 @@
     <div class="shead"><div class="ic">🔔</div><div><h1>Алерты</h1><div class="sub">События по вашим настройкам</div></div></div>
     <div class="card"><div class="h2">Мои подписки</div><div id="al-list"><div class="muted">Загрузка…</div></div></div>
     <div class="card"><div class="h2">Типы событий</div>
-      <div class="toggle"><span>Пробой цены<br><span class="muted" style="font-size:12px">price_above / price_below</span></span><span class="sw"></span></div>
-      <div class="toggle"><span>RSI-зона<br><span class="muted" style="font-size:12px">rsi_above / rsi_below</span></span><span class="sw"></span></div>
-      <div class="toggle"><span>Движение за 24ч<br><span class="muted" style="font-size:12px">change24h_abs</span></span><span class="sw"></span></div>
-      <div class="toggle"><span>Всплеск объёма<br><span class="muted" style="font-size:12px">volume_spike</span></span><span class="sw"></span></div>
+      <div class="toggle"><span>Пробой цены<br><span class="muted" style="font-size:12px">price_above / price_below</span></span><span class="sw" data-key="al-price" onclick="tgl(event,this)"></span></div>
+      <div class="toggle"><span>RSI-зона<br><span class="muted" style="font-size:12px">rsi_above / rsi_below</span></span><span class="sw" data-key="al-rsi" onclick="tgl(event,this)"></span></div>
+      <div class="toggle"><span>Движение за 24ч<br><span class="muted" style="font-size:12px">change24h_abs</span></span><span class="sw" data-key="al-chg" onclick="tgl(event,this)"></span></div>
+      <div class="toggle"><span>Всплеск объёма<br><span class="muted" style="font-size:12px">volume_spike</span></span><span class="sw" data-key="al-vol" onclick="tgl(event,this)"></span></div>
     </div>
     <div class="card"><div class="h2">Каналы уведомлений</div>
       <div class="chk"><span>Telegram (основной)</span><span class="pass">✓</span></div>
@@ -285,7 +307,7 @@
     <nav class="tabbar">
       <div class="tab on" data-s="s-overview"><div class="ti">🏠</div><span>Обзор</span></div>
       <div class="tab" data-s="s-scanner"><div class="ti">🔍</div><span>Сканер</span></div>
-      <div class="tab" data-s="s-ta"><div class="ti">📊</div><span>Аналитика</span></div>
+      <div class="tab" data-s="s-journal"><div class="ti">📒</div><span>Журнал</span></div>
       <div class="tab" data-s="s-paper"><div class="ti">🧪</div><span>Портфель</span></div>
       <div class="tab" data-s="s-coordinator"><div class="ti">🧭</div><span>Агенты</span></div>
     </nav>
@@ -295,14 +317,19 @@
 <script>
 const TG=(window.Telegram&&Telegram.WebApp)?Telegram.WebApp:null;
 try{ if(TG){TG.ready();TG.expand();} }catch(e){}
-const UID=(TG&&TG.initDataUnsafe&&TG.initDataUnsafe.user&&TG.initDataUnsafe.user.id)||1;
+const TG_UID=(TG&&TG.initDataUnsafe&&TG.initDataUnsafe.user&&TG.initDataUnsafe.user.id)||null;
+function savedUid(){ try{return parseInt(localStorage.getItem('cp_uid'))||null;}catch(e){return null;} }
+let UID = TG_UID || savedUid();        // null => гость
+let GUEST = !UID;
+let CFG = {bot_username:'', version:''};
 
-const STATE={symbol:'BTCUSDT',side:'long',entry:null,tf:'1h',finding:null,findings:[],loaded:{},balance:null};
+const STATE={symbol:'BTCUSDT',side:'long',entry:null,tf:'1h',finding:null,findings:[],exitMult:'1.5',scanFilter:'all'};
 const fmt=n=>(n==null?'—':(Math.abs(n)>=1000?Number(n).toLocaleString('ru-RU',{maximumFractionDigits:2}):(Math.abs(n)>=1?Number(n).toFixed(2):Number(n).toPrecision(4))));
 const pct=n=>(n==null?'н/д':(n>=0?'+':'')+Number(n).toFixed(2)+'%');
 const sideRu=s=>s==='long'?'лонг':'шорт';
-async function J(u){ try{return await (await fetch(u)).json();}catch(e){return {ok:false,error:String(e)};} }
+async function J(u){ try{return await (await fetch(u,{cache:'no-store'})).json();}catch(e){return {ok:false,error:String(e)};} }
 function agoMin(iso){ if(!iso)return''; const m=(Date.now()-new Date(iso))/60000; return m<1?'обновлено только что':'обновлено '+Math.floor(m)+' мин назад'; }
+function setAgo(id,iso){ const el=document.getElementById(id); if(!el)return; if(iso){el.dataset.ts=iso;el.textContent=agoMin(iso);} else {el.textContent='';} }
 
 function gauge(val,size=108){
   val=Math.max(0,Math.min(100,val||0)); const r=size*.4,c=2*Math.PI*r,off=c*(1-val/100),cx=size/2;
@@ -342,13 +369,13 @@ function candles(data,levels){
   return s+'</svg>';
 }
 
-/* routing + lazy load */
+/* routing — всегда перезагружаем экран (свежие данные выбранной пары) */
 function go(id){
   document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active',s.id===id));
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on',t.dataset.s===id));
   document.getElementById('back').classList.toggle('show',id!=='s-overview');
   window.scrollTo(0,0);
-  load(id);
+  const fn=LOADERS[id]; if(fn) try{fn();}catch(e){}
 }
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>go(t.dataset.s));
 document.getElementById('back').onclick=()=>go('s-overview');
@@ -359,19 +386,45 @@ const LOADERS={
   's-budget':loadBudget,'s-risk':loadRisk,'s-paper':loadPaper,'s-whale':loadWhale,'s-skeptic':loadSkeptic,
   's-coordinator':loadCoordinator,'s-alerts':loadAlerts
 };
-function load(id){
-  const key=id+':'+STATE.symbol+':'+STATE.tf;
-  if(STATE.loaded[key])return; STATE.loaded[key]=true;
-  const fn=LOADERS[id]; if(fn) try{fn();}catch(e){}
+
+/* ===== toggles (#3) — реальное состояние + localStorage ===== */
+function tgl(ev,el){ ev.stopPropagation(); const on=el.classList.toggle('off')===false;
+  try{localStorage.setItem('cp_'+el.dataset.key, on?'1':'0');}catch(e){} }
+function restoreToggles(){ document.querySelectorAll('.sw[data-key]').forEach(el=>{
+  let v='1'; try{const s=localStorage.getItem('cp_'+el.dataset.key); if(s!==null)v=s;}catch(e){}
+  el.classList.toggle('off', v==='0'); }); }
+
+/* ===== guest / Telegram login (#10) ===== */
+function onTGAuth(user){ if(user&&user.id){ try{localStorage.setItem('cp_uid',user.id);}catch(e){} UID=user.id; GUEST=false; loadOverview(); } }
+function renderGuest(){
+  const box=document.getElementById('ov-guest'); if(!box)return;
+  if(!GUEST){ box.style.display='none'; return; }
+  box.style.display='block';
+  let widget='';
+  if(CFG.bot_username){
+    widget='<div id="tg-login" style="margin-top:10px"></div>';
+  } else {
+    widget='<div class="hint">Вход через Telegram настраивается. Пока открывайте приложение из бота кнопкой «Открыть».</div>';
+  }
+  box.innerHTML=`<div class="h2">Гостевой режим</div><div style="font-size:14px">Войдите, чтобы видеть свои данные — журнал сделок и виртуальный портфель.</div>${widget}`;
+  if(CFG.bot_username){
+    const sc=document.createElement('script');
+    sc.async=true; sc.src='https://telegram.org/js/telegram-widget.js?22';
+    sc.setAttribute('data-telegram-login',CFG.bot_username);
+    sc.setAttribute('data-size','large'); sc.setAttribute('data-userpic','false');
+    sc.setAttribute('data-onauth','onTGAuth(user)'); sc.setAttribute('data-request-access','write');
+    document.getElementById('tg-login').appendChild(sc);
+  }
 }
+function guestCard(){ return '<div class="muted">Войдите через Telegram, чтобы видеть свои данные. <br>Открыть можно кнопкой «Обзор» → «Гостевой режим».</div>'; }
 
 /* ===== loaders ===== */
 async function loadOverview(){
+  renderGuest();
   const d=await J('/api/market');
   const el=document.getElementById('ov-coins');
   if(d.ok){ el.innerHTML=d.coins.map(c=>`<div class="coin"><div class="s">${c.symbol.replace('USDT','')}/USDT</div>
     <div class="p">$${fmt(c.price)}</div><div class="c ${c.change24h>=0?'up':'down'}">${pct(c.change24h)}</div><div>${spark(c.spark)}</div></div>`).join('');
-    document.getElementById('hdr-upd').textContent=new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
   } else el.innerHTML='<div class="muted">Рынок недоступен.</div>';
   const x=await J('/api/market_index'); const hint=document.getElementById('ov-hint'); const base='Широта + импульс + объём. Режим рынка, не прогноз.';
   if(x.warming){ document.getElementById('ov-gauge').innerHTML=gauge(0); document.getElementById('ov-idx').textContent='⏳ считаем, обновите через минуту'; hint.textContent=base; }
@@ -380,81 +433,121 @@ async function loadOverview(){
     document.getElementById('ov-breadth').textContent=i.components.breadth; document.getElementById('ov-mom').textContent=i.components.momentum; document.getElementById('ov-vol').textContent=i.components.volume;
     hint.textContent=base+(x.updated_at?' · '+agoMin(x.updated_at):''); }
   const b=await J('/api/brief'); const obs=document.getElementById('ov-obs');
-  if(b.ok&&b.brief){ const br=b.brief,ideas=br.ideas||[]; const it=[`Рынок: ${br.market_summary}`,`Идей после риск-гейта: ${ideas.length}`,`Отсеяно по риску: ${(br.filtered_out||[]).length}`,`Новостей: ${(br.news||[]).length}`];
+  if(b.warming){ obs.innerHTML='<li class="muted">⏳ сводка считается, обновите через минуту.</li>'; }
+  else if(b.ok&&b.brief){ const br=b.brief,ideas=br.ideas||[]; const it=[`Рынок: ${br.market_summary}`,`Идей после риск-гейта: ${ideas.length}`,`Отсеяно по риску: ${(br.filtered_out||[]).length}`,`Новостей: ${(br.news||[]).length}`];
     obs.innerHTML=it.map((t,i)=>`<li><span class="dotc" style="background:${['#0ecb81','#0ecb81','#e8b33d','#4a9eff'][i]}"></span>${t}</li>`).join('');
-  } else obs.innerHTML='<li class="muted">Сводка собирается…</li>';
+  } else obs.innerHTML='<li class="muted">Сводка недоступна.</li>';
 }
-async function loadScan(){
-  const d=await J('/api/scan'); const el=document.getElementById('sc-list');
-  if(d.warming){ el.innerHTML='<div class="muted">⏳ считаем, обновите через минуту.</div>'; return; }
-  if(!d.ok){ el.innerHTML='<div class="muted">Сканер недоступен.</div>'; return; }
-  STATE.findings=d.findings||[];
-  if(!STATE.findings.length){ el.innerHTML='<div class="muted">Ярких наблюдений нет.</div>'; return; }
-  if(!STATE.finding){ selectFinding(0,true); }
-  const upd=d.updated_at?`<div class="muted" style="font-size:11px;margin-bottom:8px">${agoMin(d.updated_at)}</div>`:'';
-  el.innerHTML=upd+STATE.findings.slice(0,12).map((f,i)=>`<div class="find" onclick="selectFinding(${i})">
-    <div class="mini" id="mini-${i}"></div>
-    <div><div class="v">${f.symbol} · ${sideRu(f.side)}</div><div class="badge">${f.structure||f.patterns[0]}</div> <span class="muted" style="font-size:11px">${pct(f.change_24h)}</span></div>
-    <div class="scoreb"><div class="sv">${f.score}/100</div><div class="muted" style="font-size:11px">★</div></div></div>`).join('');
-  // мини-графики по свечам (из klines, параллельно)
-  STATE.findings.slice(0,12).forEach(async (f,i)=>{ const k=await J('/api/klines?symbol='+f.symbol+'&tf=1h&limit=30'); const box=document.getElementById('mini-'+i);
+function scanPred(f,filter){
+  const st=(f.structure||'').toLowerCase();
+  if(filter==='all')return true;
+  if(filter==='pattern')return !!f.structure;
+  if(filter==='breakout')return st.includes('breakout')||st.includes('пробо')||st.includes('reclaim');
+  if(filter==='volume')return (f.vol_ratio||0)>=1.5;
+  if(filter==='rsi')return (f.rsi!=null)&&(f.rsi<=35||f.rsi>=65);
+  return true;
+}
+function renderScanList(){
+  const el=document.getElementById('sc-list');
+  const list=STATE.findings.filter(f=>scanPred(f,STATE.scanFilter)).slice(0,12);
+  if(!list.length){ el.innerHTML='<div class="muted">По этому фильтру наблюдений нет.</div>'; return; }
+  el.innerHTML=list.map((f)=>{const idx=STATE.findings.indexOf(f);return `<div class="find" onclick="selectFinding(${idx})">
+    <div class="mini" id="mini-${idx}"></div>
+    <div><div class="v">${f.symbol} · ${sideRu(f.side)}</div><div class="badge">${f.structure||(f.patterns&&f.patterns[0])||'—'}</div> <span class="muted" style="font-size:11px">${pct(f.change_24h)}</span></div>
+    <div class="scoreb"><div class="sv">${f.score}/100</div><div class="muted" style="font-size:11px">★</div></div></div>`;}).join('');
+  list.forEach(async (f)=>{const idx=STATE.findings.indexOf(f);const k=await J('/api/klines?symbol='+f.symbol+'&tf=1h&limit=30'); const box=document.getElementById('mini-'+idx);
     if(box&&k.ok&&k.candles){ box.innerHTML=spark(k.candles.map(c=>c[4])); } });
 }
-function selectFinding(i,silent){
+async function loadScan(){
+  const d=await J('/api/scan'); const el=document.getElementById('sc-list'); const upd=document.getElementById('sc-upd');
+  if(d.warming){ upd.textContent=''; el.innerHTML='<div class="muted">⏳ считаем, обновите через минуту.</div>'; return; }
+  if(!d.ok){ el.innerHTML='<div class="muted">Сканер недоступен.</div>'; return; }
+  STATE.findings=d.findings||[];
+  setAgo('sc-upd',d.updated_at);
+  if(!STATE.findings.length){ el.innerHTML='<div class="muted">Ярких наблюдений нет.</div>'; return; }
+  if(!STATE.finding){ const f=STATE.findings[0]; STATE.finding=f; STATE.symbol=f.symbol; STATE.side=f.side; STATE.entry=f.price; }
+  renderScanList();
+}
+document.querySelectorAll('#sc-chips .chip').forEach(c=>c.onclick=()=>{
+  document.querySelectorAll('#sc-chips .chip').forEach(x=>x.classList.remove('on')); c.classList.add('on');
+  STATE.scanFilter=c.dataset.f; renderScanList();
+});
+function selectFinding(i){
   const f=STATE.findings[i]; if(!f)return;
-  STATE.finding=f; STATE.symbol=f.symbol; STATE.side=f.side; STATE.entry=f.price; STATE.loaded={};
-  if(!silent) go('s-pattern');
+  STATE.finding=f; STATE.symbol=f.symbol; STATE.side=f.side; STATE.entry=f.price; STATE.tf='1h'; STATE.exitMult='1.5';
+  go('s-pattern');
 }
 async function renderPattern(f){
-  if(!f){ return; }
-  document.getElementById('pt-title').textContent=(f.structure||f.patterns[0]||'Паттерн')+' — '+f.symbol;
+  if(!f){ document.getElementById('pt-title').textContent='Выберите пару в сканере'; return; }
+  const sym=f.symbol;
+  document.getElementById('pt-title').textContent=(f.structure||(f.patterns&&f.patterns[0])||'Паттерн')+' — '+sym;
   document.getElementById('pt-sub').textContent='Сторона: '+sideRu(f.side);
   document.getElementById('pt-gauge').innerHTML=gauge(f.score);
   document.getElementById('pt-score').textContent=f.score+'/100';
   document.getElementById('pt-side').textContent=sideRu(f.side);
   document.getElementById('pt-struct').textContent=f.structure||'—';
   document.getElementById('pt-factors').innerHTML=(f.factors||[]).map(x=>`<div class="chk"><span class="muted">${x.name}</span><span class="${x.points>0?'pass':'fail'}">${x.points}/${x.max}</span></div>`).join('');
-  // график + уровни из exit
-  const ex=await J('/api/exit?symbol='+f.symbol+'&side='+f.side+'&entry='+f.price);
+  document.getElementById('pt-chart').innerHTML='<div class="muted" style="padding:28px;text-align:center">загрузка…</div>';
+  document.getElementById('pt-lvls').innerHTML='';
+  // данные строго по выбранной паре
+  const [ex,k]=await Promise.all([
+    J('/api/exit?symbol='+sym+'&side='+f.side+'&entry='+f.price),
+    J('/api/klines?symbol='+sym+'&tf=1h&limit=60')
+  ]);
+  if(STATE.finding!==f) return;  // пользователь уже выбрал другую — не перетираем
   const lv=ex.ok?ex.exit:null;
-  const k=await J('/api/klines?symbol='+f.symbol+'&tf=1h&limit=60');
   const levels=lv?[{v:f.price,c:'#ffffff'},{v:lv.stop,c:'#f6465d'},{v:lv.take1,c:'#0ecb81'}]:[];
-  document.getElementById('pt-chart').innerHTML=candles(k.ok?k.candles:null,levels);
+  document.getElementById('pt-chart').innerHTML=candles((k.ok&&k.symbol===sym)?k.candles:null,levels);
   document.getElementById('pt-lvls').innerHTML=lv?`<div class="lvl"><div class="k">Вход</div><div class="v">${fmt(f.price)}</div></div>
     <div class="lvl"><div class="k">Стоп</div><div class="v down">${fmt(lv.stop)}</div></div>
-    <div class="lvl"><div class="k">Цель</div><div class="v up">${fmt(lv.take1)}</div></div>`:'';
+    <div class="lvl"><div class="k">Цель</div><div class="v up">${fmt(lv.take1)}</div></div>`:'<div class="muted">Уровни недоступны.</div>';
 }
 async function loadTA(){
-  const f=STATE.finding;
   document.getElementById('ta-sym').textContent=STATE.symbol+' · '+STATE.tf.toUpperCase();
-  const k=await J('/api/klines?symbol='+STATE.symbol+'&tf='+STATE.tf+'&limit=60');
-  document.getElementById('ta-chart').innerHTML=candles(k.ok?k.candles:null,[]);
-  if(f&&f.symbol===STATE.symbol){ const e=f.ema||{};
+  const tf=STATE.tf, sym=STATE.symbol;
+  document.getElementById('ta-chart').innerHTML='<div class="muted" style="padding:28px;text-align:center">загрузка…</div>';
+  document.getElementById('ta-ind').innerHTML='<div class="muted">Загрузка…</div>';
+  document.getElementById('ta-sr').innerHTML='';
+  const [k,t]=await Promise.all([
+    J('/api/klines?symbol='+sym+'&tf='+tf+'&limit=60'),
+    J('/api/ta?symbol='+sym+'&tf='+tf)
+  ]);
+  if(STATE.symbol!==sym||STATE.tf!==tf) return;
+  document.getElementById('ta-chart').innerHTML=candles((k.ok&&k.symbol===sym)?k.candles:null,[]);
+  if(t.ok&&t.ta){ const a=t.ta,e=a.ema||{};
     document.getElementById('ta-ind').innerHTML=`
-      <div class="r"><span class="muted">Цена</span><span class="v">$${fmt(f.price)}</span></div>
+      <div class="r"><span class="muted">Цена</span><span class="v">$${fmt(a.price)}</span></div>
+      <div class="r"><span class="muted">Тренд</span><span class="v" style="font-weight:600;font-size:12px;text-align:right;max-width:60%">${a.trend||'—'}</span></div>
       <div class="r"><span class="muted">EMA 20 / 50 / 200</span><span class="v">${fmt(e.ema20)} / ${fmt(e.ema50)} / ${fmt(e.ema200)}</span></div>
-      <div class="r"><span class="muted">RSI (14)</span><span class="v">${f.rsi!=null?f.rsi.toFixed(1):'—'}</span></div>
-      <div class="r"><span class="muted">MACD (гист.)</span><span class="v ${f.macd>=0?'up':'down'}">${f.macd!=null?f.macd.toFixed(1):'—'}</span></div>
-      <div class="r"><span class="muted">ATR (14)</span><span class="v">${fmt(f.atr)}</span></div>`;
-    document.getElementById('ta-sr').innerHTML=`<div class="r"><span class="muted">Сопротивление</span><span class="v down">${f.resistance!=null?fmt(f.resistance):'—'}</span></div>
-      <div class="r"><span class="muted">Поддержка</span><span class="v up">${f.support!=null?fmt(f.support):'—'}</span></div>`;
-  } else { document.getElementById('ta-ind').innerHTML='<div class="muted">Выбери пару в сканере для индикаторов.</div>'; document.getElementById('ta-sr').innerHTML=''; }
+      <div class="r"><span class="muted">RSI (14)</span><span class="v">${a.rsi!=null?a.rsi.toFixed(1):'—'} · ${a.rsi_state||''}</span></div>
+      <div class="r"><span class="muted">ATR (14)</span><span class="v">${fmt(a.atr)} (${a.atr_pct!=null?a.atr_pct.toFixed(2):'—'}%) · ${a.volatility_state||''}</span></div>
+      <div class="r"><span class="muted">Объём</span><span class="v" style="font-size:12px">${a.volume_state||'—'}</span></div>`;
+    document.getElementById('ta-sr').innerHTML=`<div class="r"><span class="muted">Сопротивление</span><span class="v down">${a.resistance!=null?fmt(a.resistance):'—'}</span></div>
+      <div class="r"><span class="muted">Поддержка</span><span class="v up">${a.support!=null?fmt(a.support):'—'}</span></div>`;
+  } else { document.getElementById('ta-ind').innerHTML='<div class="muted">Данные по '+sym+' '+tf.toUpperCase()+' недоступны.</div>'; }
 }
-document.querySelectorAll('#ta-tfs .tf').forEach(t=>t.onclick=()=>{document.querySelectorAll('#ta-tfs .tf').forEach(x=>x.classList.remove('on'));t.classList.add('on');STATE.tf=t.dataset.tf;STATE.loaded={};loadTA();});
+document.querySelectorAll('#ta-tfs .tf').forEach(t=>t.onclick=()=>{document.querySelectorAll('#ta-tfs .tf').forEach(x=>x.classList.remove('on'));t.classList.add('on');STATE.tf=t.dataset.tf;loadTA();});
 async function loadTM(){ const k=await J('/api/klines?symbol='+STATE.symbol+'&tf=1d&limit=60'); document.getElementById('tm-chart').innerHTML=candles(k.ok?k.candles:null,[]); }
 async function loadJournal(){
-  const d=await J('/api/journal/'+UID),el=document.getElementById('jr-tiles');
-  if(!d.ok||!d.stats||!d.stats.total){ el.innerHTML='<div class="muted">Пока нет закрытых сделок.</div>'; return; }
-  const s=d.stats; el.innerHTML=`<div class="tile"><div class="k">Винрейт</div><div class="v">${(s.win_rate*100).toFixed(1)}%</div></div>
-    <div class="tile"><div class="k">Средний R</div><div class="v ${s.avg_r>=0?'up':'down'}">${s.avg_r>=0?'+':''}${s.avg_r.toFixed(2)}R</div></div>
-    <div class="tile"><div class="k">Сделок</div><div class="v">${s.total}</div></div>
-    <div class="tile"><div class="k">Expectancy</div><div class="v">${s.expectancy>=0?'+':''}${s.expectancy.toFixed(2)}R</div></div>
+  const tiles=document.getElementById('jr-tiles'),list=document.getElementById('jr-list');
+  if(GUEST){ tiles.innerHTML=guestCard(); list.innerHTML=''; return; }
+  const d=await J('/api/journal/'+UID);
+  const s=(d.ok&&d.stats)?d.stats:{total:0,win_rate:0,avg_r:0,expectancy:0,best_r:null,worst_r:null};
+  tiles.innerHTML=`<div class="tile"><div class="k">Сделок</div><div class="v">${s.total||0}</div></div>
+    <div class="tile"><div class="k">Винрейт</div><div class="v">${((s.win_rate||0)*100).toFixed(1)}%</div></div>
+    <div class="tile"><div class="k">Средний R</div><div class="v ${(s.avg_r||0)>=0?'up':'down'}">${(s.avg_r||0)>=0?'+':''}${(s.avg_r||0).toFixed(2)}R</div></div>
+    <div class="tile"><div class="k">Expectancy</div><div class="v">${(s.expectancy||0)>=0?'+':''}${(s.expectancy||0).toFixed(2)}R</div></div>
     <div class="tile"><div class="k">Лучший R</div><div class="v up">${s.best_r!=null?'+'+s.best_r.toFixed(2):'—'}</div></div>
     <div class="tile"><div class="k">Худший R</div><div class="v down">${s.worst_r!=null?s.worst_r.toFixed(2):'—'}</div></div>`;
+  if(!s.total){ list.innerHTML='<div class="muted">Пока нет закрытых сделок. Запись — командой <b>/trade</b> в боте.</div>'; }
+  else { list.innerHTML='<div class="muted">Закрытых сделок: '+s.total+'. Детали и записи — в боте (/journal).</div>'; }
 }
 async function loadEntry(){
   document.getElementById('en-sym').textContent=STATE.symbol+' · '+sideRu(STATE.side);
-  const d=await J('/api/entry?symbol='+STATE.symbol+'&side='+STATE.side);
+  document.getElementById('en-ring').innerHTML=ring(0,'…'); document.getElementById('en-summary').textContent='Загрузка…'; document.getElementById('en-cond').innerHTML='';
+  const sym=STATE.symbol,side=STATE.side;
+  const d=await J('/api/entry?symbol='+sym+'&side='+side);
+  if(STATE.symbol!==sym||STATE.side!==side) return;
   if(!d.ok||!d.entry){ document.getElementById('en-ring').innerHTML=ring(0,'нет данных'); document.getElementById('en-summary').textContent='Нет данных.'; document.getElementById('en-cond').innerHTML=''; return; }
   const e=d.entry; document.getElementById('en-ring').innerHTML=ring(e.score,'готовность');
   document.getElementById('en-summary').textContent=e.summary||'';
@@ -462,17 +555,26 @@ async function loadEntry(){
 }
 async function loadExit(){
   document.getElementById('ex-sym').textContent=STATE.symbol+' · '+sideRu(STATE.side);
-  const d=await J('/api/exit?symbol='+STATE.symbol+'&side='+STATE.side+(STATE.entry?'&entry='+STATE.entry:''));
-  const el=document.getElementById('ex-rows');
+  document.querySelectorAll('#ex-tabs .tb').forEach(t=>t.classList.toggle('on',t.dataset.mult===STATE.exitMult));
+  const el=document.getElementById('ex-rows'); el.innerHTML='<div class="muted">Загрузка…</div>';
+  const sym=STATE.symbol,side=STATE.side,mult=STATE.exitMult;
+  const d=await J('/api/exit?symbol='+sym+'&side='+side+'&mult='+mult+(STATE.entry?'&entry='+STATE.entry:''));
+  if(STATE.symbol!==sym||STATE.side!==side||STATE.exitMult!==mult) return;
   if(!d.ok||!d.exit){ el.innerHTML='<div class="muted">Нет данных.</div>'; return; }
   const x=d.exit; el.innerHTML=`<div class="r"><span class="muted">Вход</span><span class="v">${fmt(x.entry)}</span></div>
     <div class="r"><span class="muted">Стоп (×${x.atr_mult} ATR)</span><span class="v down">${fmt(x.stop)}</span></div>
     <div class="r"><span class="muted">Тейк 1</span><span class="v up">${fmt(x.take1)} · R:R ${x.rr1.toFixed(2)}</span></div>
     <div class="r"><span class="muted">Тейк 2</span><span class="v up">${fmt(x.take2)} · R:R ${x.rr2.toFixed(2)}</span></div>`;
+  const names={'2.0':'Консервативная','1.5':'Базовая','1.0':'Агрессивная'};
+  document.getElementById('ex-hint').innerHTML=`Пресет: <b>${names[mult]||mult}</b> (×${mult} ATR). Арифметика от ATR и уровней, не рекомендация.`;
 }
+document.querySelectorAll('#ex-tabs .tb').forEach(t=>t.onclick=()=>{STATE.exitMult=t.dataset.mult;loadExit();});
 async function loadBudget(){
-  const pf=await J('/api/paper/'+UID); const bal=(pf.ok&&pf.portfolio)?pf.portfolio.balance:10000;
-  const ex=await J('/api/exit?symbol='+STATE.symbol+'&side='+STATE.side+(STATE.entry?'&entry='+STATE.entry:''));
+  document.getElementById('bd-in').innerHTML='<div class="muted">Загрузка…</div>'; document.getElementById('bd-size').textContent='—'; document.getElementById('bd-out').innerHTML='';
+  const bal=(!GUEST)?await (async()=>{const pf=await J('/api/paper/'+UID);return (pf.ok&&pf.portfolio)?pf.portfolio.balance:10000;})():10000;
+  const sym=STATE.symbol,side=STATE.side;
+  const ex=await J('/api/exit?symbol='+sym+'&side='+side+'&mult='+STATE.exitMult+(STATE.entry?'&entry='+STATE.entry:''));
+  if(STATE.symbol!==sym||STATE.side!==side) return;
   if(!ex.ok||!ex.exit){ document.getElementById('bd-in').innerHTML='<div class="muted">Нет данных по уровням.</div>'; return; }
   const entry=ex.exit.entry,stop=ex.exit.stop;
   const bd=await J('/api/budget?balance='+bal+'&risk=1&entry='+entry+'&stop='+stop);
@@ -480,46 +582,63 @@ async function loadBudget(){
     <div class="r"><span class="muted">Риск на сделку</span><span class="v">1.0%</span></div>
     <div class="r"><span class="muted">Вход / Стоп</span><span class="v">${fmt(entry)} / ${fmt(stop)}</span></div>`;
   if(bd.ok&&bd.budget){ const b=bd.budget;
-    document.getElementById('bd-size').textContent=fmt(b.qty)+' '+STATE.symbol.replace('USDT','');
+    document.getElementById('bd-size').textContent=fmt(b.qty)+' '+sym.replace('USDT','');
     document.getElementById('bd-out').innerHTML=`<div class="r"><span class="muted">Риск в деньгах</span><span class="v">${fmt(b.risk_usdt)} USDT</span></div>
       <div class="r"><span class="muted">Маржа (1x)</span><span class="v">${fmt(b.position_usdt)} USDT</span></div>`;
   } else document.getElementById('bd-size').textContent='—';
 }
 async function loadRisk(){
   document.getElementById('rk-sym').textContent=STATE.symbol+' · '+sideRu(STATE.side);
-  const d=await J('/api/risk?symbol='+STATE.symbol+'&side='+STATE.side+(STATE.entry?'&entry='+STATE.entry:''));
-  const el=document.getElementById('rk-body');
+  const el=document.getElementById('rk-body'); el.innerHTML='<div class="muted">Загрузка…</div>';
+  const sym=STATE.symbol,side=STATE.side;
+  const d=await J('/api/risk?symbol='+sym+'&side='+side+(STATE.entry?'&entry='+STATE.entry:''));
+  if(STATE.symbol!==sym||STATE.side!==side) return;
   if(!d.ok||!d.risk){ el.innerHTML='<div class="muted">Нет данных.</div>'; return; }
   const r=d.risk,pass=r.verdict==='PASS';
   el.innerHTML=`<div class="passbox ${pass?'':'warn'}"><div class="p">${pass?'✅ PASS':'⚠️ ВНИМАНИЕ'}</div>
     <div class="muted">${pass?'Сделка соответствует правилам':'Есть слабые места'} · R:R ${r.rr.toFixed(2)}</div></div>
     <div class="card">${r.checks.map(c=>`<div class="chk"><span class="muted">${c.name}</span><span class="${c.status==='PASS'?'pass':'fail'}">${c.status==='PASS'?'OK':'✕'}</span></div>`).join('')}</div>`;
 }
+function paperBuyHint(){
+  const note=document.getElementById('pp-note');
+  note.innerHTML='Покупка в демо-режиме выполняется командой в боте: <b>/paperbuy '+STATE.symbol+' 0.01</b>. Это виртуальный счёт, не реальные деньги.';
+}
 async function loadPaper(){
-  const d=await J('/api/paper/'+UID),head=document.getElementById('pp-head'),pos=document.getElementById('pp-pos');
-  if(d.ok&&d.portfolio){ head.innerHTML=`<div class="r"><span class="muted">Виртуальный счёт</span><span class="v">10 000 USDT</span></div>
+  const head=document.getElementById('pp-head'),pos=document.getElementById('pp-pos'),st=document.getElementById('pp-stats');
+  if(GUEST){ head.innerHTML=guestCard(); pos.innerHTML='';
+    st.innerHTML=`<div class="tile"><div class="k">Сделок</div><div class="v">—</div></div><div class="tile"><div class="k">Винрейт</div><div class="v">—</div></div><div class="tile"><div class="k">Средний R:R</div><div class="v">—</div></div>`;
+    return; }
+  const d=await J('/api/paper/'+UID);
+  if(d.ok&&d.portfolio){ head.innerHTML=`<div class="r"><span class="muted">Виртуальный счёт</span><span class="v">10 000 USDT старт</span></div>
     <div class="r"><span class="muted">Свободный баланс</span><span class="v gold">${fmt(d.portfolio.balance)} USDT</span></div>`;
     const ps=d.portfolio.positions||[];
     pos.innerHTML=ps.length?ps.map(p=>`<div class="posrow"><span>${p.symbol} · ${p.side==='long'?'LONG':'SHORT'}</span><span class="v">${fmt(p.qty)} @ ${fmt(p.entry_price)}</span></div>`).join(''):'<div class="muted">Открытых позиций нет.</div>';
-  } else { head.innerHTML='<div class="muted">Портфель недоступен.</div>'; }
-  const j=await J('/api/journal/'+UID),st=document.getElementById('pp-stats');
-  if(j.ok&&j.stats&&j.stats.total){ const s=j.stats; st.innerHTML=`<div class="tile"><div class="k">Сделок</div><div class="v">${s.total}</div></div>
-    <div class="tile"><div class="k">Винрейт</div><div class="v">${(s.win_rate*100).toFixed(1)}%</div></div>
-    <div class="tile"><div class="k">Ср. R</div><div class="v ${s.avg_r>=0?'up':'down'}">${s.avg_r>=0?'+':''}${s.avg_r.toFixed(2)}</div></div>`;
-  } else st.innerHTML='<div class="muted">Нет закрытых сделок.</div>';
+  } else { head.innerHTML='<div class="muted">Портфель недоступен.</div>'; pos.innerHTML=''; }
+  const j=await J('/api/journal/'+UID);
+  const s=(j.ok&&j.stats)?j.stats:{total:0,win_rate:0,avg_r:0};
+  st.innerHTML=`<div class="tile"><div class="k">Сделок</div><div class="v">${s.total||0}</div></div>
+    <div class="tile"><div class="k">Винрейт</div><div class="v">${((s.win_rate||0)*100).toFixed(1)}%</div></div>
+    <div class="tile"><div class="k">Средний R:R</div><div class="v ${(s.avg_r||0)>=0?'up':'down'}">${(s.avg_r||0)>=0?'+':''}${(s.avg_r||0).toFixed(2)}</div></div>`;
 }
 async function loadWhale(){
   document.getElementById('wh-sym').textContent=STATE.symbol;
-  const d=await J('/api/whales?symbol='+STATE.symbol),el=document.getElementById('wh-body');
+  const el=document.getElementById('wh-body'); el.innerHTML='<div class="muted">Загрузка…</div>';
+  const sym=STATE.symbol;
+  const d=await J('/api/whales?symbol='+sym);
+  if(STATE.symbol!==sym) return;
   if(!d.ok||!d.whales){ el.innerHTML='<div class="muted">Недоступно.</div>'; return; }
   const w=d.whales,top=w.top||[];
-  let h=`<div class="r"><span class="muted">${w.symbol} · давление</span><span class="v">${w.pressure}</span></div>`;
-  el.innerHTML=h+(top.length?top.map(t=>`<div class="whalerow"><span class="${t.side==='buy'?'up':'down'}">${t.side==='buy'?'покупка':'продажа'}</span><span class="v">$${fmt(t.price)} · ~${(t.notional/1e6).toFixed(1)}M</span></div>`).join(''):'<div class="muted">Крупных сделок в окне нет. Наблюдения, не рекомендация.</div>');
+  let h=`<div class="r"><span class="muted">${w.symbol} · давление</span><span class="v">${w.pressure}</span></div>
+    <div class="r"><span class="muted">Крупных сделок</span><span class="v">${w.whale_count!=null?w.whale_count:'—'}</span></div>`;
+  el.innerHTML=h+(top.length?top.map(t=>`<div class="whalerow"><span class="${t.side==='buy'?'up':'down'}">${t.side==='buy'?'покупка':'продажа'}</span><span class="v">$${fmt(t.price)} · ~${(t.notional/1e6).toFixed(1)}M</span></div>`).join(''):'<div class="whalerow"><span class="muted">Крупных сделок в окне нет. Наблюдения, не рекомендация.</span></div>');
 }
 async function loadSkeptic(){
   document.getElementById('sk-sym').textContent=STATE.symbol+' · '+sideRu(STATE.side);
-  const d=await J('/api/skeptic?symbol='+STATE.symbol+'&side='+STATE.side+(STATE.entry?'&entry='+STATE.entry:''));
   const forEl=document.getElementById('sk-for'),agEl=document.getElementById('sk-against'),sum=document.getElementById('sk-sum');
+  forEl.innerHTML=''; agEl.innerHTML=''; sum.textContent='Загрузка…';
+  const sym=STATE.symbol,side=STATE.side;
+  const d=await J('/api/skeptic?symbol='+sym+'&side='+side+(STATE.entry?'&entry='+STATE.entry:''));
+  if(STATE.symbol!==sym||STATE.side!==side) return;
   if(!d.ok||!d.skeptic){ forEl.innerHTML='<div class="muted">—</div>'; agEl.innerHTML='<div class="muted">—</div>'; sum.textContent='Нет данных.'; return; }
   const sk=d.skeptic,checks=sk.checks||[];
   const fors=checks.filter(c=>c.status==='PASS'),against=checks.filter(c=>c.status==='FAIL');
@@ -529,22 +648,37 @@ async function loadSkeptic(){
 }
 async function loadCoordinator(){
   const b=await J('/api/brief'),co=document.getElementById('co-body');
-  if(b.ok&&b.brief){ const br=b.brief,ideas=br.ideas||[];
-    co.innerHTML=`<div class="muted" style="font-size:13px;margin-bottom:8px">🤖 Автодайджест. Наблюдения, не рекомендации.</div>
+  if(b.warming){ co.innerHTML='<div class="muted">⏳ автодайджест считается, обновите через минуту.</div>'; }
+  else if(b.ok&&b.brief){ const br=b.brief,ideas=br.ideas||[];
+    co.innerHTML=`<div class="muted" style="font-size:13px;margin-bottom:8px">🤖 Автодайджест. Наблюдения, не рекомендации.${br.generated_at?' · '+agoMin(b.updated_at||br.generated_at):''}</div>
       <div class="chk"><span class="muted">Ситуаций найдено</span><span class="pass">${br.scanned??ideas.length}</span></div>
       <div class="chk"><span class="muted">Идей после риск-гейта</span><span class="pass">${ideas.length}</span></div>
       <div class="chk"><span class="muted">Отсеяно по риску</span><span class="pass">${(br.filtered_out||[]).length}</span></div>
       <div class="chk"><span class="muted">Новостей</span><span class="pass">${(br.news||[]).length}</span></div>`;
-  } else co.innerHTML='<div class="muted">Собирается…</div>';
+  } else co.innerHTML='<div class="muted">Недоступно.</div>';
 }
 async function loadAlerts(){
-  const d=await J('/api/alerts/'+UID),el=document.getElementById('al-list');
+  const el=document.getElementById('al-list');
+  if(GUEST){ el.innerHTML=guestCard(); return; }
+  const d=await J('/api/alerts/'+UID);
   if(!d.ok){ el.innerHTML='<div class="muted">Недоступно.</div>'; return; }
   const a=d.alerts||[];
-  el.innerHTML=a.length?a.map(x=>`<div class="chk"><span>${x.symbol} · ${x.condition_type}</span><span class="gold">${fmt(x.threshold)}</span></div>`).join(''):'<div class="muted">Активных подписок нет.</div>';
+  el.innerHTML=a.length?a.map(x=>`<div class="chk"><span>${x.symbol} · ${x.condition_type}</span><span class="gold">${fmt(x.threshold)}</span></div>`).join(''):'<div class="muted">Активных подписок нет. Поставить: /watch в боте.</div>';
 }
 
-load('s-overview');
+/* ===== live clock (#11) + minute refresh of "обновлено X мин" ===== */
+function tickClock(){ const el=document.getElementById('hdr-clock'); if(el) el.textContent=new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
+function refreshAgo(){ document.querySelectorAll('[data-ts]').forEach(el=>{ el.textContent=agoMin(el.dataset.ts); }); }
+setInterval(tickClock,1000);
+setInterval(refreshAgo,60000);
+
+/* ===== init ===== */
+(async function init(){
+  restoreToggles();
+  tickClock();
+  const cfg=await J('/api/config'); if(cfg&&cfg.ok){ CFG.bot_username=cfg.bot_username||''; CFG.version=cfg.version||''; }
+  loadOverview();
+})();
 </script>
 </body>
 </html>
