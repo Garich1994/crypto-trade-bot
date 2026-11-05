@@ -448,7 +448,13 @@ async def place_limit_order(
 
     mode = current_mode()
 
+    # paper: только локальная проверка, БЕЗ сети (exchangeInfo геоблочится из США
+    # и для эмуляции не нужен). qty>0 и price>0 уже проверены выше.
     if mode == "paper":
+        if stop is not None and float(stop) <= 0:
+            raise BrokerError("Стоп должен быть больше нуля.")
+        if take is not None and float(take) <= 0:
+            raise BrokerError("Тейк должен быть больше нуля.")
         order = paper_add_limit(user_id, symbol, side, qty, price, stop, take)
         return {"status": "placed", "mode": "paper", "order_type": "limit",
                 "symbol": symbol, "side": side, "qty": qty, "limit_price": price,
@@ -461,6 +467,7 @@ async def place_limit_order(
     if not _keys_present():
         return {"status": "blocked",
                 "reason": "нет ключей в .env (BINANCE_API_KEY/BINANCE_API_SECRET)."}
+    # LOT_SIZE из exchangeInfo нужен только для реальной биржи (testnet/live).
     await _validate_lot(mode, symbol, qty)
 
     if mode == "testnet":
