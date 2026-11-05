@@ -70,6 +70,99 @@ def _detect_patterns(
     return patterns
 
 
+def _detect_structure(close, rsi_series) -> str | None:
+    """Распознать паттерн методологии на свечах. Возвращает имя или None."""
+    c = close.to_numpy()
+    r = rsi_series.to_numpy()
+    n = len(c)
+    # 20-периодный пробой по закрытиям
+    if n > 21 and c[-1] > c[-21:-1].max():
+        return "20-day breakout"
+    # bull flag: рост >10% за 10 свеч до последних 5, затем 5 закрытий в коридоре 5%
+    if n >= 15:
+        before, mid = c[-15], c[-5]
+        if before > 0 and (mid - before) / before > 0.10:
+            seg = c[-5:]
+            if seg.min() > 0 and (seg.max() - seg.min()) / seg.min() < 0.05:
+                return "bull flag"
+    # reclaim MA20: предыдущее закрытие ниже SMA20, последнее — выше
+    if n >= 21:
+        sma_prev = c[-21:-1].mean()
+        sma_now = c[-20:].mean()
+        if c[-2] < sma_prev and c[-1] > sma_now:
+            return "MA20 reclaim"
+    # oversold bounce: RSI был < 30, текущая свеча закрылась ростом
+    if len(r) >= 2 and r[-2] < 30 and c[-1] > c[-2]:
+        return "oversold bounce"
+    return None
+
+
+def _score_trend(side, price, e20, e50, e200) -> int:
+    if side == "long":
+        if e20 > e50 > e200:
+            return 30
+        if e20 > e50:
+            return 20
+        if price > e200:
+            return 10
+        return 0
+    if e20 < e50 < e200:
+        return 30
+    if e20 < e50:
+        return 20
+    if price < e200:
+        return 10
+    return 0
+
+
+def _score_volume(ratio) -> int:
+    if ratio >= 1.5:
+        return 25
+    if ratio >= 1.2:
+        return 15
+    if ratio >= 1.0:
+        return 8
+    return 0
+
+
+def _score_rsi(side, rsi) -> int:
+    eff = rsi if side == "long" else 100 - rsi
+    if 45 <= eff <= 65:
+        return 20
+    if (35 <= eff < 45) or (65 < eff <= 75):
+        return 10
+    return 0
+
+
+def _score_level(side, price, support, resistance, atr) -> int:
+    if atr <= 0:
+        return 0
+    if side == "long":
+        dist = (resistance - price) / atr if resistance is not None else 999.0
+    else:
+        dist = (price - support) / atr if support is not None else 999.0
+    if dist >= 2:
+        return 15
+    if dist >= 1:
+        return 8
+    return 0
+
+
+def score_setup(m: dict) -> tuple[int, list[dict]]:
+    """Качество сетапа по правилам (НЕ вероятность успеха). score = сумма factors."""
+    factors = [
+        {"name": "Тренд", "points": _score_trend(
+            m["side"], m["price"], m["ema20"], m["ema50"], m["ema200"]), "max": 30},
+        {"name": "Объём", "points": _score_volume(m["vol_ratio"]), "max": 25},
+        {"name": "RSI-зона", "points": _score_rsi(m["side"], m["rsi"]), "max": 20},
+        {"name": "Место до уровня", "points": _score_level(
+            m["side"], m["price"], m["support"], m["resistance"], m["atr"]), "max": 15},
+        {"name": "Структура", "points": 10 if m.get("structure") else 0, "max": 10},
+    ]
+    score = sum(f["points"] for f in factors)
+    return score, factors
+
+
 async def _scan_pair(ticker: dict, timeframe: str) -> dict | None:
     symbol = str(ticker.get("symbol", "")).upper()
     try:
@@ -78,6 +171,8 @@ async def _scan_pair(ticker: dict, timeframe: str) -> dict | None:
         return None  # сбой по паре не ломает весь скан
 
     close = pd.to_numeric(pd.Series([c[4] for c in raw]), errors="coerce")
+    high = pd.to_numeric(pd.Series([c[2] for c in raw]), errors="coerce")
+    low = pd.to_numeric(pd.Series([c[3] for c in raw]), errors="coerce")
     volume = pd.to_numeric(pd.Series([c[5] for c in raw]), errors="coerce")
     if close.dropna().shape[0] < 30:
         return None
@@ -92,7 +187,12 @@ async def _scan_pair(ticker: dict, timeframe: str) -> dict | None:
     rsi_series = ind.rsi(close, 14)
     rsi_now = float(rsi_series.iloc[-1])
     rsi_prev = float(rsi_series.iloc[-2])
+    ema20 = float(ind.ema(close, 20).iloc[-1])
+    ema50 = float(ind.ema(close, 50).iloc[-1])
     ema200 = float(ind.ema(close, 200).iloc[-1])
+    atr = float(ind.atr(high, low, close, 14).iloc[-1])
+    macd_line, macd_avg, macd_hist = ind.macd(close, 12, 26, 9)
+    macd_hist = float(macd_hist.iloc[-1])
 
     avg_vol = float(volume.tail(_VOL_WINDOW).mean())
     last_vol = float(volume.iloc[-1])
@@ -104,6 +204,17 @@ async def _scan_pair(ticker: dict, timeframe: str) -> dict | None:
     if not patterns:
         return None
 
+    swing_highs, swing_lows = ind.swing_levels(high, low, window=5)
+    support, resistance = ind.nearest_support_resistance(swing_highs, swing_lows, price)
+    side = "long" if price >= ema200 else "short"
+    structure = _detect_structure(close, rsi_series)
+
+    score, factors = score_setup({
+        "side": side, "price": price, "ema20": ema20, "ema50": ema50,
+        "ema200": ema200, "vol_ratio": vol_ratio, "rsi": rsi_now, "atr": atr,
+        "support": support, "resistance": resistance, "structure": structure,
+    })
+
     return {
         "symbol": symbol,
         "price": price,
@@ -111,6 +222,15 @@ async def _scan_pair(ticker: dict, timeframe: str) -> dict | None:
         "rsi": rsi_now,
         "vol_ratio": vol_ratio,
         "patterns": patterns,
+        "side": side,
+        "structure": structure,
+        "score": score,
+        "factors": factors,
+        "support": support,
+        "resistance": resistance,
+        "ema": {"ema20": ema20, "ema50": ema50, "ema200": ema200},
+        "atr": atr,
+        "macd": macd_hist,
     }
 
 
@@ -132,9 +252,9 @@ async def scan(timeframe: str = DEFAULT_TIMEFRAME, top_n: int = DEFAULT_TOP_N) -
         if found is not None:
             findings.append(found)
 
-    # Сначала пары с бОльшим числом паттернов, затем по силе суточного движения.
+    # Сначала по силе сетапа, затем по числу паттернов.
     findings.sort(
-        key=lambda f: (len(f["patterns"]), abs(f["change_24h"] or 0.0)),
+        key=lambda f: (f.get("score", 0), len(f["patterns"])),
         reverse=True,
     )
     return findings
