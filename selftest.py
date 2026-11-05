@@ -11,6 +11,7 @@ import os
 import shutil
 import sys
 import tempfile
+from datetime import datetime, timezone
 
 # На Windows консоль по умолчанию cp1252 и не печатает кириллицу — переключаем в UTF-8.
 for _stream in (sys.stdout, sys.stderr):
@@ -28,6 +29,8 @@ from agents.alerts_agent import (
 )
 from agents.alerts_agent import set_db_path as set_alerts_db
 from agents.backtest_agent import BacktestError, backtest
+import agents.autopush_agent.autopush as autopush
+from agents.autopush_agent import evaluate_push
 import agents.broker_agent.broker as broker
 from agents.budget_agent import calc_position
 from agents.chart_agent import CHART_LABELS, render_analysis, render_backtest
@@ -83,6 +86,7 @@ from bot.formatting import (
     format_paper_closed,
     format_paper_opened,
     format_paper_portfolio,
+    format_push,
     format_risk,
     format_scan,
     format_size,
@@ -1335,6 +1339,73 @@ async def _check_paper_limit_no_network(errors: list[str]) -> None:
         print(f"  {OK} buylimit/selllimit в paper без сети; исполнение по касанию работает")
 
 
+def _check_autopush(errors: list[str]) -> None:
+    """Автопуш: сильная идея пушится; score<75/риск-гейт FAIL/дубль/тихий час — нет."""
+    print("\n— Проверяю автопуш наблюдений …")
+    before = len(errors)
+    tmp_dir = tempfile.mkdtemp(prefix="push_selftest_")
+    uid = 111
+    # 15:00 UTC = 10:00 NY (не тихий час); 08:00 UTC = 03:00 NY (тихий час).
+    day = datetime(2026, 1, 15, 15, 0, tzinfo=timezone.utc)
+    night = datetime(2026, 1, 15, 8, 0, tzinfo=timezone.utc)
+
+    brief = {
+        "ideas": [
+            {"symbol": "BTCUSDT", "side": "long", "setup_score": 82,
+             "setup_factors": [{"name": "Тренд", "points": 30},
+                               {"name": "Объём", "points": 25},
+                               {"name": "RSI-зона", "points": 20}],
+             "entry": 67400, "stop": 65258, "take1": 70618, "take2": 72264,
+             "skeptic_passed": 5, "skeptic_total": 5, "weak_points": []},
+            {"symbol": "ETHUSDT", "side": "long", "setup_score": 50,  # score < 75
+             "setup_factors": [], "entry": 2600, "stop": 2500, "take1": 2800,
+             "take2": 2900, "skeptic_passed": 5, "skeptic_total": 5, "weak_points": []},
+            {"symbol": "SOLUSDT", "side": "long", "setup_score": 90,  # скептик FAIL
+             "setup_factors": [], "entry": 160, "stop": 150, "take1": 175,
+             "take2": 180, "skeptic_passed": 3, "skeptic_total": 5, "weak_points": ["a", "b"]},
+        ],
+        "filtered_out": [{"symbol": "XRPUSDT", "reason": "риск-гейт: стоп/RSI"}],
+    }
+    try:
+        autopush.set_db_path(f"{tmp_dir}/push.db")
+
+        # Позитив + негативы (score<75, скептик FAIL, риск-гейт FAIL) днём.
+        pushes = evaluate_push(brief, uid, day)
+        syms = [p["symbol"] for p in pushes]
+        if syms != ["BTCUSDT"]:
+            errors.append(f"autopush: ожидался пуш только BTCUSDT, получено {syms}")
+        if "ETHUSDT" in syms:
+            errors.append("autopush: пуш при score<75")
+        if "SOLUSDT" in syms:
+            errors.append("autopush: пуш при скептик FAIL")
+        if "XRPUSDT" in syms:
+            errors.append("autopush: пуш при риск-гейт FAIL (из filtered_out)")
+
+        # Негатив: дубль пара+сторона в окне 12ч — второго пуша нет.
+        again = evaluate_push(brief, uid, day)
+        if any(p["symbol"] == "BTCUSDT" for p in again):
+            errors.append("autopush: дубль пары в окне 12ч не отфильтрован")
+
+        # Негатив: тихий час (03:00 NY) — пушей нет (другой пользователь, чтобы не мешал дубль).
+        if evaluate_push(brief, 222, night):
+            errors.append("autopush: пуш в тихий час 00:00–07:00 NY")
+
+        # Текст пуша нейтральный, без запрещённых слов.
+        msg = format_push(brief["ideas"][0])
+        _check_forbidden(msg, "autopush", errors)
+        if "Наблюдение, не рекомендация" not in msg or "Сила сетапа 82/100" not in msg:
+            errors.append("autopush: формат пуша неполный")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    if len(errors) == before:
+        print(f"  {OK} сильная идея пушится; score<75/скептик FAIL/риск-гейт/дубль/тихий час — нет")
+        print("  ----- превью пуша -----")
+        for line in format_push(brief["ideas"][0]).splitlines():
+            print(f"  {line}")
+        print("  -----------------------")
+
+
 async def _run() -> int:
     pairs = [("BTCUSDT", "1h"), ("ETHUSDT", "1h")]
     errors: list[str] = []
@@ -1382,6 +1453,7 @@ async def _run() -> int:
     _check_scan_scoring(errors)
     await _check_new_apis(errors)
     _check_index_html(errors)
+    _check_autopush(errors)
 
     print()
     if errors:
