@@ -330,6 +330,19 @@ async def _check_exit(errors: list[str]) -> None:
         if not _is_number(result.get(key)):
             errors.append(f"exit: {key} не число ({result.get(key)!r})")
 
+    # Пресеты ×1.0 / ×1.5 / ×2.0 ATR должны давать РАЗНЫЕ стопы (не схлопываться).
+    try:
+        stops = [
+            (await plan_exit("BTCUSDT", "1h", "long", entry, m))["stop"]
+            for m in (1.0, 1.5, 2.0)
+        ]
+        if len({round(s, 2) for s in stops}) != 3:
+            errors.append(f"exit: пресеты ×1/×1.5/×2 дают одинаковые стопы ({stops})")
+        if not (stops[0] > stops[1] > stops[2]):
+            errors.append(f"exit: стопы не монотонны по множителю ({stops})")
+    except (ExitError, DataAgentError) as exc:
+        errors.append(f"exit: пресеты не посчитались — {exc}")
+
     message = format_exit(result)
     if not message.strip():
         errors.append("exit: сообщение не сформировалось")

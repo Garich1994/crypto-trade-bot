@@ -14,7 +14,8 @@ DEFAULT_TIMEFRAME = "1h"
 _CANDLES = 300
 _SIDES = {"long", "short"}
 _SIDE_ALIASES = {"лонг": "long", "шорт": "short"}
-_SNAP_FACTOR = 0.75  # «рядом» = в пределах 0.75 * ATR
+_SNAP_FACTOR = 0.75  # «рядом» для тейков = в пределах 0.75 * ATR
+_SNAP_STOP = 0.5     # для стопа окно уже, чтобы пресеты ×1/×1.5/×2 давали разные стопы
 _RR1 = 1.5
 _RR2 = 2.0
 
@@ -84,15 +85,18 @@ async def plan_exit(
 
     snapped: list[str] = []
 
-    # Подтяжка стопа к уровню со «своей» стороны.
-    stop_candidates = supports_below if side == "long" else resistances_above
-    snapped_stop = _nearest(stop, stop_candidates, snap_dist)
+    # Прижатие стопа к уровню — только если уровень ВНУТРИ ATR-диапазона и ГЛУБЖЕ
+    # базового стопа (не ближе ко входу): стоп не затягивается выше уровня, а разные
+    # множители ATR дают разные стопы. Нет подходящего уровня — стоп строго по ATR.
+    stop_snap = _SNAP_STOP * atr_val
+    if side == "long":
+        far_levels = [s for s in supports_below if s <= stop]   # глубже базового стопа
+    else:
+        far_levels = [r for r in resistances_above if r >= stop]
+    snapped_stop = _nearest(stop, far_levels, stop_snap)
     if snapped_stop is not None:
-        if (side == "long" and snapped_stop < entry) or (
-            side == "short" and snapped_stop > entry
-        ):
-            stop = snapped_stop
-            snapped.append("стоп")
+        stop = snapped_stop
+        snapped.append("стоп")
 
     risk = abs(entry - stop)
     if risk <= 0:

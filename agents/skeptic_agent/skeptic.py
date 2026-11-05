@@ -145,7 +145,9 @@ async def skeptic(
 
     price = float(close.iloc[-1])
     swing_highs, swing_lows = ind.swing_levels(high, low, window=5)
-    support, resistance = ind.nearest_support_resistance(swing_highs, swing_lows, entry)
+    # Уровни S/R — от последнего закрытия (как в Аналитике), единый источник на всех
+    # экранах: на одном таймфрейме поддержка/сопротивление совпадают.
+    support, resistance = ind.nearest_support_resistance(swing_highs, swing_lows, price)
     avg_vol = float(volume.tail(20).mean())
 
     metrics = {

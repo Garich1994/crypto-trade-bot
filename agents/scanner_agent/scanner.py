@@ -215,6 +215,8 @@ async def _scan_pair(ticker: dict, timeframe: str) -> dict | None:
         "support": support, "resistance": resistance, "structure": structure,
     })
 
+    spark = [round(float(v), 8) for v in close.dropna().tail(24).tolist()]
+
     return {
         "symbol": symbol,
         "price": price,
@@ -224,6 +226,7 @@ async def _scan_pair(ticker: dict, timeframe: str) -> dict | None:
         "patterns": patterns,
         "side": side,
         "structure": structure,
+        "breakout": bool(structure and "breakout" in structure.lower()),
         "score": score,
         "factors": factors,
         "support": support,
@@ -231,6 +234,7 @@ async def _scan_pair(ticker: dict, timeframe: str) -> dict | None:
         "ema": {"ema20": ema20, "ema50": ema50, "ema200": ema200},
         "atr": atr,
         "macd": macd_hist,
+        "spark": spark,
     }
 
 

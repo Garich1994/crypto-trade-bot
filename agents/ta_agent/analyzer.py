@@ -120,8 +120,10 @@ async def analyze(symbol: str, timeframe: str = DEFAULT_TIMEFRAME) -> dict:
     bb_upper, bb_mid, bb_lower = ind.bollinger(close, 20, 2.0)
 
     swing_highs, swing_lows = ind.swing_levels(df["high"], df["low"], window=5)
+    # Уровни S/R считаем от последнего закрытия — единый источник на всех экранах
+    # (Аналитика и детали Skeptic дают одинаковые значения на одном таймфрейме).
     support, resistance = ind.nearest_support_resistance(
-        swing_highs, swing_lows, price
+        swing_highs, swing_lows, float(close.iloc[-1])
     )
 
     atr_val = float(atr_series.iloc[-1])
