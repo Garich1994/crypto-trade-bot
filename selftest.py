@@ -57,6 +57,7 @@ from agents.paper_agent import (
     open_position,
     portfolio,
     reset as paper_reset,
+    run_limit_check,
     run_paper_check,
 )
 from agents.paper_agent import set_db_path as set_paper_db
@@ -1070,6 +1071,92 @@ async def _check_broker(errors: list[str]) -> None:
         print(f"  {OK} paper ок, подпись верна, live без тапа/стопа не уходит, killswitch блокирует")
 
 
+async def _check_limit_orders(errors: list[str]) -> None:
+    """Лимитные ордера: paper исполняется при касании, отмена; live-гейты и валидация."""
+    print("\n— Проверяю лимитные ордера (моки) …")
+    before = len(errors)
+    tmp_dir = tempfile.mkdtemp(prefix="limit_selftest_")
+    uid = 111
+
+    for k in ("BROKER_MODE", "BINANCE_API_KEY", "BINANCE_API_SECRET"):
+        os.environ.pop(k, None)
+    saved_price = broker.get_ticker_24h
+    saved_validate = broker._validate_lot
+
+    async def fake_ticker(symbol):
+        return {"lastPrice": "80000"}
+
+    async def fake_validate(mode, symbol, qty):  # без сети
+        return None
+
+    async def price_at(val):
+        async def f(symbol):
+            return val
+        return f
+
+    try:
+        broker.set_db_path(f"{tmp_dir}/limit.db")
+        set_paper_db(f"{tmp_dir}/limit.db")
+        broker.get_ticker_24h = fake_ticker
+        broker._validate_lot = fake_validate
+        broker.set_mode("paper")
+
+        # Позитив: лимитная покупка ниже рынка.
+        res = await broker.place_limit_order(uid, "BTCUSDT", "buy", 0.01, 78000, 76000, 82000)
+        if res["status"] != "placed":
+            errors.append(f"limit: ордер не выставлен ({res})")
+        oid = res.get("orderId")
+
+        # Цена выше лимита — не исполняется.
+        ev = await run_limit_check(fetcher=await price_at(79000.0))
+        if ev:
+            errors.append("limit: ордер исполнился выше лимитной цены")
+
+        # Цена коснулась лимита — исполняется, появляется позиция, баланс падает.
+        ev = await run_limit_check(fetcher=await price_at(77000.0))
+        if not any(e["orderId"] == oid for e in ev):
+            errors.append("limit: ордер не исполнился при касании")
+        if not portfolio(uid)["positions"]:
+            errors.append("limit: после исполнения нет позиции")
+        if get_balance(uid) >= 10000.0:
+            errors.append("limit: баланс не изменился после исполнения")
+
+        # Отмена до исполнения.
+        res2 = await broker.place_limit_order(uid, "BTCUSDT", "buy", 0.01, 70000, 68000)
+        await broker.cancel_order(uid, res2["orderId"])
+        ev2 = await run_limit_check(fetcher=await price_at(69000.0))
+        if any(e["orderId"] == res2["orderId"] for e in ev2):
+            errors.append("limit: отменённый ордер всё равно исполнился")
+
+        # Негатив: невалидные цена/кол-во.
+        for bad in [(0, 78000), (0.01, 0)]:
+            try:
+                await broker.place_limit_order(uid, "BTCUSDT", "buy", bad[0], bad[1], 1)
+                errors.append(f"limit: принят невалидный ордер {bad}")
+            except Exception:
+                pass
+
+        # Негатив live: без стопа → BLOCK; без тапа → needs_confirmation (не выставлен).
+        os.environ["BROKER_MODE"] = "live"
+        os.environ["BINANCE_API_KEY"] = "k"
+        os.environ["BINANCE_API_SECRET"] = "s"
+        res_ns = await broker.place_limit_order(uid, "BTCUSDT", "buy", 0.01, 78000)
+        if res_ns["status"] != "blocked" or "стоп" not in res_ns.get("reason", ""):
+            errors.append(f"limit live: без стопа не заблокирован ({res_ns})")
+        res_live = await broker.place_limit_order(uid, "BTCUSDT", "buy", 0.01, 78000, 76000, 82000)
+        if res_live["status"] != "needs_confirmation":
+            errors.append(f"limit live: ордер выставлен без подтверждения ({res_live})")
+    finally:
+        broker.get_ticker_24h = saved_price
+        broker._validate_lot = saved_validate
+        for k in ("BROKER_MODE", "BINANCE_API_KEY", "BINANCE_API_SECRET"):
+            os.environ.pop(k, None)
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    if len(errors) == before:
+        print(f"  {OK} paper: касание исполняет, отмена работает; live без стопа/тапа не уходит")
+
+
 async def _run() -> int:
     pairs = [("BTCUSDT", "1h"), ("ETHUSDT", "1h")]
     errors: list[str] = []
@@ -1111,6 +1198,7 @@ async def _run() -> int:
     await _check_miniapp(errors)
     await _check_deploy(errors)
     await _check_broker(errors)
+    await _check_limit_orders(errors)
 
     print()
     if errors:
