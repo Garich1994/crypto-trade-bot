@@ -1285,6 +1285,88 @@ async def _check_new_apis(errors: list[str]) -> None:
         print(f"  {OK} warming до расчёта; после — кэш <1с с updated_at")
 
 
+async def _check_detail_apis(errors: list[str]) -> None:
+    """Новые эндпоинты (entry/exit/budget/risk/skeptic/alerts/klines) — 200 и <2с."""
+    print("\n— Проверяю детальные /api/* (entry/exit/budget/risk/skeptic/alerts/klines) …")
+    import time as _t
+    from aiohttp.test_utils import TestClient, TestServer
+    before = len(errors)
+
+    async def f_entry(symbol, tf, side):
+        return {"score": 60, "factors": [{"label": "RSI 55 — нейтрально", "points": 0}],
+                "summary": "нейтрально", "symbol": symbol, "side": side}
+
+    async def f_exit(symbol, tf, side, entry):
+        return {"entry": entry, "stop": entry * 0.98, "take1": entry * 1.03,
+                "take2": entry * 1.05, "rr1": 1.5, "rr2": 2.5, "atr_mult": 1.5,
+                "atr": 100.0, "risk": entry * 0.02, "side": side, "symbol": symbol}
+
+    def f_calc(bal, risk, entry, stop):
+        return {"risk_usdt": bal * risk / 100, "qty": 0.1,
+                "position_usdt": entry * 0.1, "leverage": 1.0}
+
+    async def f_skeptic(symbol, side, entry, stop, take):
+        checks = [{"name": n, "status": "PASS", "detail": "ok"} for n in
+                  ("RSI против направления", "Стоп vs волатильность", "Уровни против",
+                   "Участие объёма", "Тренд против")]
+        return {"checks": checks, "passed": 5, "total": 5, "weak_points": [],
+                "summary": "слабых мест нет"}
+
+    def f_alerts(uid):
+        return [{"id": 1, "symbol": "BTCUSDT", "condition_type": "price_above",
+                 "threshold": 81000}]
+
+    async def f_klines(symbol, tf, limit=60):
+        return [[i, 100, 101, 99, 100, 10, i, 0, 0, 0, 0, 0] for i in range(limit)]
+
+    async def f_ticker(symbol):
+        return {"lastPrice": "80000", "priceChangePercent": "1.0"}
+
+    saved = {n: getattr(miniapp_server, n) for n in
+             ("score_entry", "plan_exit", "calc_position", "skeptic",
+              "list_alerts", "get_klines", "get_ticker_24h", "AUTO_REFRESH")}
+    miniapp_server.score_entry = f_entry
+    miniapp_server.plan_exit = f_exit
+    miniapp_server.calc_position = f_calc
+    miniapp_server.skeptic = f_skeptic
+    miniapp_server.list_alerts = f_alerts
+    miniapp_server.get_klines = f_klines
+    miniapp_server.get_ticker_24h = f_ticker
+    miniapp_server.AUTO_REFRESH = False
+
+    client = None
+    try:
+        client = TestClient(TestServer(miniapp_server.create_app()))
+        await client.start_server()
+        eps = [
+            "/api/entry?symbol=BTCUSDT&side=long",
+            "/api/exit?symbol=BTCUSDT&side=long&entry=80000",
+            "/api/budget?balance=10000&risk=1&entry=80000&stop=78000",
+            "/api/risk?symbol=BTCUSDT&side=long&entry=80000",
+            "/api/skeptic?symbol=BTCUSDT&side=long&entry=80000",
+            "/api/alerts/1",
+            "/api/klines?symbol=BTCUSDT&tf=1h",
+        ]
+        for ep in eps:
+            t0 = _t.monotonic()
+            r = await client.get(ep)
+            dt = _t.monotonic() - t0
+            d = await r.json()
+            if r.status != 200 or not d.get("ok"):
+                errors.append(f"api {ep}: не 200/ok ({d})")
+            if dt > 2.0:
+                errors.append(f"api {ep}: дольше 2с ({dt:.2f}s)")
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"api detail: сервер упал — {exc!r}")
+    finally:
+        if client is not None:
+            await client.close()
+        for n, v in saved.items():
+            setattr(miniapp_server, n, v)
+    if len(errors) == before:
+        print(f"  {OK} все 7 новых эндпоинтов 200, ответ <2с")
+
+
 def _check_index_html(errors: list[str]) -> None:
     """index.html: 15 экранов и нет захардкоженных цен из мокапов."""
     print("\n— Проверяю index.html (15 экранов, без хардкода цен) …")
@@ -1487,6 +1569,7 @@ async def _run() -> int:
     _check_market_index_math(errors)
     _check_scan_scoring(errors)
     await _check_new_apis(errors)
+    await _check_detail_apis(errors)
     _check_index_html(errors)
     _check_autopush(errors)
 
