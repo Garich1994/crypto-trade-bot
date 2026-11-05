@@ -1205,8 +1205,9 @@ def _check_scan_scoring(errors: list[str]) -> None:
 
 
 async def _check_new_apis(errors: list[str]) -> None:
-    """Эндпоинты /api/market_index и /api/scan отвечают 200 с валидным JSON (моки)."""
-    print("\n— Проверяю /api/market_index и /api/scan …")
+    """Кэш: /api/market_index и /api/scan — warming до расчёта, затем мгновенно (<1с) с updated_at."""
+    print("\n— Проверяю кэш /api/market_index и /api/scan …")
+    import time as _t
     from aiohttp.test_utils import TestClient, TestServer
     before = len(errors)
 
@@ -1221,35 +1222,67 @@ async def _check_new_apis(errors: list[str]) -> None:
                  "patterns": ["x"], "structure": "bull flag", "change_24h": 3.0,
                  "price": 80000, "rsi": 55}]
 
-    saved = (miniapp_server.market_index, miniapp_server.scan)
+    saved = (miniapp_server.market_index, miniapp_server.scan, miniapp_server.AUTO_REFRESH)
+    saved_cache = (dict(miniapp_server._INDEX_CACHE), dict(miniapp_server._SCAN_CACHE))
     miniapp_server.market_index = fake_index
     miniapp_server.scan = fake_scan
+    miniapp_server.AUTO_REFRESH = False
+    miniapp_server._INDEX_CACHE.update({"data": None, "updated_at": None})
+    miniapp_server._SCAN_CACHE.update({"data": None, "updated_at": None})
+
     client = None
     try:
         client = TestClient(TestServer(miniapp_server.create_app()))
         await client.start_server()
+
+        # 1) До расчёта — warming.
+        w = await (await client.get("/api/market_index")).json()
+        if not (w.get("ok") and w.get("warming")):
+            errors.append(f"api: market_index нет warming до расчёта ({w})")
+        ws = await (await client.get("/api/scan")).json()
+        if not (ws.get("ok") and ws.get("warming")):
+            errors.append("api: scan нет warming до расчёта")
+
+        # 2) Фоновый расчёт.
+        await miniapp_server.refresh_now()
+
+        # 3) После — мгновенная отдача кэша с updated_at, замер времени.
+        t0 = _t.monotonic()
         r = await client.get("/api/market_index")
+        dt = _t.monotonic() - t0
         d = await r.json()
-        if r.status != 200 or not d.get("ok"):
-            errors.append(f"api: /api/market_index не 200/ok ({r.status})")
+        if r.status != 200 or not d.get("ok") or "index" not in d:
+            errors.append(f"api: market_index не отдал кэш ({d})")
         else:
-            idx = d["index"]
-            if not (0 <= idx["value"] <= 100):
+            if not (0 <= d["index"]["value"] <= 100):
                 errors.append("api: market_index value вне [0,100]")
-            if any(k not in idx["components"] for k in ("breadth", "momentum", "volume")):
+            if not d.get("updated_at"):
+                errors.append("api: market_index без updated_at")
+            if any(k not in d["index"]["components"] for k in ("breadth", "momentum", "volume")):
                 errors.append("api: market_index без трёх компонентов")
+        if dt > 1.0:
+            errors.append(f"api: market_index дольше 1с ({dt:.2f}s)")
+
+        t1 = _t.monotonic()
         r2 = await client.get("/api/scan")
+        dt2 = _t.monotonic() - t1
         d2 = await r2.json()
-        if r2.status != 200 or not d2.get("ok"):
-            errors.append(f"api: /api/scan не 200/ok ({r2.status})")
+        if r2.status != 200 or not d2.get("ok") or "findings" not in d2:
+            errors.append(f"api: scan не отдал кэш ({d2})")
+        if not d2.get("updated_at"):
+            errors.append("api: scan без updated_at")
+        if dt2 > 1.0:
+            errors.append(f"api: scan дольше 1с ({dt2:.2f}s)")
     except Exception as exc:  # noqa: BLE001
         errors.append(f"api: сервер упал — {exc!r}")
     finally:
         if client is not None:
             await client.close()
-        miniapp_server.market_index, miniapp_server.scan = saved
+        miniapp_server.market_index, miniapp_server.scan, miniapp_server.AUTO_REFRESH = saved
+        miniapp_server._INDEX_CACHE.update(saved_cache[0])
+        miniapp_server._SCAN_CACHE.update(saved_cache[1])
     if len(errors) == before:
-        print(f"  {OK} оба эндпоинта 200, value в [0,100], три компонента")
+        print(f"  {OK} warming до расчёта; после — кэш <1с с updated_at")
 
 
 def _check_index_html(errors: list[str]) -> None:
@@ -1409,6 +1442,8 @@ def _check_autopush(errors: list[str]) -> None:
 async def _run() -> int:
     pairs = [("BTCUSDT", "1h"), ("ETHUSDT", "1h")]
     errors: list[str] = []
+    # В тестах фоновый пересчёт кэша не нужен (управляем вручную).
+    miniapp_server.AUTO_REFRESH = False
 
     for symbol, timeframe in pairs:
         print(f"\n— Проверяю {symbol} ({timeframe}) …")
