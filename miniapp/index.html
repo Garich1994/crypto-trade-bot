@@ -536,8 +536,8 @@ async function loadOverview(){
     hint.textContent=base+(x.updated_at?' · '+agoMin(x.updated_at):''); setMiPill(i); }
   const b=await J('/api/brief'); const obs=document.getElementById('ov-obs');
   if(b.warming){ obs.innerHTML='<li class="muted">⏳ сводка считается…</li>'; }
-  else if(b.ok&&b.brief){ const br=b.brief,ideas=br.ideas||[]; const it=[['Рынок: '+br.market_summary,'s-scanner'],['Идей после риск-гейта: '+ideas.length,'s-coordinator'],['Отсеяно по риску: '+((br.filtered_out||[]).length),'s-coordinator'],['Новостей: '+((br.news||[]).length),'s-coordinator']];
-    obs.innerHTML=it.map((t,i)=>`<li onclick="go('${t[1]}')"><span class="dotc" style="background:${['#0ecb81','#0ecb81','#e8b33d','#4a9eff'][i]}"></span>${t[0]}</li>`).join('');
+  else if(b.ok&&b.brief){ const br=b.brief,ideas=br.ideas||[]; const it=[['Рынок: '+br.market_summary,'s-scanner'],['Идей после риск-гейта (без фильтра скептика): '+ideas.length,'s-coordinator'],['Отсеяно по риску: '+((br.filtered_out||[]).length),'s-coordinator'],['Строгие топ-идеи (скептик 5/5 + порог) — в разделе «Топ-идеи»','s-best'],['Новостей: '+((br.news||[]).length),'s-coordinator']];
+    obs.innerHTML=it.map((t,i)=>`<li onclick="go('${t[1]}')"><span class="dotc" style="background:${['#0ecb81','#0ecb81','#e8b33d','#e8b33d','#4a9eff'][i]}"></span>${t[0]}</li>`).join('');
   } else obs.innerHTML='<li class="muted">Сводка недоступна.</li>';
   // держим findings сканера для детальных карточек Топ-идей
   const sc=await J('/api/scan'); if(sc.ok&&sc.findings) STATE.findings=sc.findings;
