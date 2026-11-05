@@ -5,11 +5,16 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 from aiohttp import web
+
+logger = logging.getLogger(__name__)
 
 # Имена агентов на уровне модуля — чтобы подменять в тестах.
 from agents.coordinator_agent import build_brief
@@ -31,6 +36,58 @@ DASHBOARD_URL = f"https://{_DOMAIN}" if _DOMAIN else f"http://localhost:{PORT}"
 
 #: Монеты рынка на дашборде.
 _MARKET_SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT")
+
+# Тяжёлые расчёты (индекс рынка и скан) считаются в фоне и кэшируются — обработчики
+# API отдают последний результат мгновенно, без тяжёлых вычислений внутри.
+_REFRESH_INTERVAL = 300  # секунд (5 минут)
+AUTO_REFRESH = True       # в тестах выключается, чтобы управлять кэшем вручную
+_INDEX_CACHE: dict = {"data": None, "updated_at": None}
+_SCAN_CACHE: dict = {"data": None, "updated_at": None}
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+async def _refresh_index() -> None:
+    try:
+        data = await market_index()
+        _INDEX_CACHE["data"] = data
+        _INDEX_CACHE["updated_at"] = data.get("updated_at") or _now_iso()
+    except Exception:  # noqa: BLE001 — оставляем прошлый кэш, не роняем цикл
+        logger.exception("Не удалось обновить индекс рынка")
+
+
+async def _refresh_scan() -> None:
+    try:
+        findings = await scan(timeframe="1h", top_n=30)
+        _SCAN_CACHE["data"] = findings
+        _SCAN_CACHE["updated_at"] = _now_iso()
+    except Exception:  # noqa: BLE001
+        logger.exception("Не удалось обновить скан")
+
+
+async def refresh_now() -> None:
+    """Пересчитать индекс и скан сейчас (используется циклом и тестами)."""
+    await asyncio.gather(_refresh_index(), _refresh_scan())
+
+
+async def _refresh_loop() -> None:
+    """Фоновый пересчёт каждые 5 минут. Первый расчёт — сразу при старте."""
+    while True:
+        await refresh_now()
+        await asyncio.sleep(_REFRESH_INTERVAL)
+
+
+async def _on_startup(app: web.Application) -> None:
+    if AUTO_REFRESH:
+        app["refresh_task"] = asyncio.create_task(_refresh_loop())
+
+
+async def _on_cleanup(app: web.Application) -> None:
+    task = app.get("refresh_task")
+    if task is not None:
+        task.cancel()
 
 
 def _resp(data, status: int = 200) -> web.Response:
@@ -70,19 +127,24 @@ async def api_market(request: web.Request) -> web.Response:
 
 
 async def api_market_index(request: web.Request) -> web.Response:
-    try:
-        return _resp({"ok": True, "index": await market_index()})
-    except Exception as exc:  # noqa: BLE001
-        return _resp({"ok": False, "error": str(exc)})
+    # Только отдача кэша — без тяжёлых вычислений в обработчике.
+    if _INDEX_CACHE["data"] is None:
+        return _resp({"ok": True, "warming": True})
+    return _resp({
+        "ok": True,
+        "index": _INDEX_CACHE["data"],
+        "updated_at": _INDEX_CACHE["updated_at"],
+    })
 
 
 async def api_scan(request: web.Request) -> web.Response:
-    try:
-        tf = request.query.get("tf", "1h")
-        findings = await scan(timeframe=tf, top_n=30)
-        return _resp({"ok": True, "findings": findings})
-    except Exception as exc:  # noqa: BLE001
-        return _resp({"ok": False, "error": str(exc)})
+    if _SCAN_CACHE["data"] is None:
+        return _resp({"ok": True, "warming": True})
+    return _resp({
+        "ok": True,
+        "findings": _SCAN_CACHE["data"],
+        "updated_at": _SCAN_CACHE["updated_at"],
+    })
 
 
 async def api_brief(request: web.Request) -> web.Response:
@@ -129,6 +191,8 @@ def create_app() -> web.Application:
     app.router.add_get("/api/whales", api_whales)
     app.router.add_get("/api/journal/{user_id}", api_journal)
     app.router.add_get("/api/paper/{user_id}", api_paper)
+    app.on_startup.append(_on_startup)
+    app.on_cleanup.append(_on_cleanup)
     return app
 
 
