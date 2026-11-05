@@ -1272,6 +1272,69 @@ def _check_index_html(errors: list[str]) -> None:
         print(f"  {OK} экранов 15, захардкоженных цен нет, дисклеймер на месте")
 
 
+async def _check_paper_limit_no_network(errors: list[str]) -> None:
+    """Регресс: paper-лимитки выставляются/исполняются БЕЗ обращения к exchangeInfo."""
+    print("\n— Проверяю paper-лимитки без сети (регресс LOT_SIZE) …")
+    before = len(errors)
+    tmp_dir = tempfile.mkdtemp(prefix="papernet_selftest_")
+    uid = 111
+    for k in ("BROKER_MODE", "BINANCE_API_KEY", "BINANCE_API_SECRET"):
+        os.environ.pop(k, None)
+
+    saved_ticker = broker.get_ticker_24h
+    saved_lot = broker._get_lot_size
+    saved_validate = broker._validate_lot
+
+    async def boom(*a, **k):
+        raise AssertionError("СЕТЕВОЙ ВЫЗОВ exchangeInfo В PAPER!")
+
+    async def fake_ticker(symbol):
+        return {"lastPrice": "80000"}
+
+    async def price_at(val):
+        async def f(symbol):
+            return val
+        return f
+
+    try:
+        broker.set_db_path(f"{tmp_dir}/pn.db")
+        set_paper_db(f"{tmp_dir}/pn.db")
+        broker.get_ticker_24h = fake_ticker
+        # Любой заход в exchangeInfo/LOT_SIZE в paper → провал теста.
+        broker._get_lot_size = boom
+        broker._validate_lot = boom
+        broker.set_mode("paper")
+
+        # buylimit paper — должен выставиться без сети.
+        rb = await broker.place_limit_order(uid, "BTCUSDT", "buy", 0.01, 78000, 76000, 82000)
+        if rb["status"] != "placed":
+            errors.append(f"paper buylimit не выставлен ({rb})")
+
+        # открыть лонг (маркет), чтобы было что продать selllimit'ом.
+        await broker.place_order(uid, "BTCUSDT", "buy", 0.02)
+        # selllimit paper — тоже без сети.
+        rs = await broker.place_limit_order(uid, "BTCUSDT", "sell", 0.01, 85000, 86000, 84000)
+        if rs["status"] != "placed":
+            errors.append(f"paper selllimit не выставлен ({rs})")
+
+        # исполнение по касанию (цена ≤ лимита buy 78000).
+        ev = await run_limit_check(fetcher=await price_at(77000.0))
+        if not any(e["orderId"] == rb["orderId"] for e in ev):
+            errors.append("paper buylimit не исполнился по касанию")
+        if not portfolio(uid)["positions"]:
+            errors.append("paper: после исполнения нет позиции")
+    except AssertionError as exc:
+        errors.append(f"paper: {exc}")
+    finally:
+        broker.get_ticker_24h = saved_ticker
+        broker._get_lot_size = saved_lot
+        broker._validate_lot = saved_validate
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    if len(errors) == before:
+        print(f"  {OK} buylimit/selllimit в paper без сети; исполнение по касанию работает")
+
+
 async def _run() -> int:
     pairs = [("BTCUSDT", "1h"), ("ETHUSDT", "1h")]
     errors: list[str] = []
@@ -1314,6 +1377,7 @@ async def _run() -> int:
     await _check_deploy(errors)
     await _check_broker(errors)
     await _check_limit_orders(errors)
+    await _check_paper_limit_no_network(errors)
     _check_market_index_math(errors)
     _check_scan_scoring(errors)
     await _check_new_apis(errors)
