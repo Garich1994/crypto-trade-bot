@@ -40,6 +40,19 @@ CREATE TABLE IF NOT EXISTS paper_positions (
     closed_at   TEXT,
     pnl_usdt    REAL
 );
+CREATE TABLE IF NOT EXISTS paper_orders (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    symbol      TEXT    NOT NULL,
+    side        TEXT    NOT NULL,
+    qty         REAL    NOT NULL,
+    limit_price REAL    NOT NULL,
+    stop        REAL,
+    take        REAL,
+    status      TEXT    NOT NULL DEFAULT 'open',
+    created_at  TEXT    NOT NULL,
+    filled_at   TEXT
+);
 """
 
 
@@ -284,6 +297,155 @@ def _hit_level(pos: dict, price: float) -> tuple[float, str] | None:
         if take is not None and price <= take:
             return take, "take"
     return None
+
+
+# ----------------------------------------------------------- лимитные ордера
+
+def _long_qty(con, user_id: int, symbol: str) -> float:
+    rows = con.execute(
+        "SELECT qty FROM paper_positions WHERE user_id=? AND symbol=? "
+        "AND side='long' AND status='open'",
+        (int(user_id), symbol.upper()),
+    ).fetchall()
+    return sum(float(r["qty"]) for r in rows)
+
+
+def add_limit_order(
+    user_id: int,
+    symbol: str,
+    side: str,
+    qty: float,
+    limit_price: float,
+    stop: float | None = None,
+    take: float | None = None,
+) -> dict:
+    """Поставить локальный лимитный ордер (paper). Баланс не трогается до исполнения."""
+    symbol = symbol.upper().strip()
+    side = str(side).strip().lower()
+    if side not in ("buy", "sell"):
+        raise PaperError("Сторона должна быть buy или sell.")
+    try:
+        qty = float(qty)
+        limit_price = float(limit_price)
+        stop = float(stop) if stop is not None else None
+        take = float(take) if take is not None else None
+    except (TypeError, ValueError):
+        raise PaperError("Количество и цены должны быть числами.")
+    if qty <= 0 or limit_price <= 0:
+        raise PaperError("Количество и цена должны быть больше нуля.")
+
+    with _connect() as con:
+        if side == "sell":
+            # Спот-семантика: продать можно только имеющийся базовый актив (лонг).
+            held = _long_qty(con, user_id, symbol)
+            if held + 1e-12 < qty:
+                raise PaperError(
+                    f"Недостаточно базового актива: в наличии {held}, нужно {qty} "
+                    f"(сначала купи {symbol})."
+                )
+        cur = con.execute(
+            "INSERT INTO paper_orders "
+            "(user_id, symbol, side, qty, limit_price, stop, take, status, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)",
+            (int(user_id), symbol, side, qty, limit_price, stop, take, _now()),
+        )
+        order_id = int(cur.lastrowid)
+
+    return {"orderId": order_id, "symbol": symbol, "side": side, "qty": qty,
+            "limit_price": limit_price, "stop": stop, "take": take}
+
+
+def open_limit_orders(user_id: int) -> list[dict]:
+    with _connect() as con:
+        rows = con.execute(
+            "SELECT * FROM paper_orders WHERE user_id=? AND status='open' ORDER BY id",
+            (int(user_id),),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def cancel_limit_order(user_id: int, order_id: int) -> bool:
+    with _connect() as con:
+        cur = con.execute(
+            "UPDATE paper_orders SET status='cancelled' "
+            "WHERE id=? AND user_id=? AND status='open'",
+            (int(order_id), int(user_id)),
+        )
+        if cur.rowcount == 0:
+            raise PaperError(
+                f"Лимитный ордер №{order_id} не найден или уже исполнен/отменён."
+            )
+    return True
+
+
+def _all_open_orders() -> list[dict]:
+    with _connect() as con:
+        rows = con.execute(
+            "SELECT * FROM paper_orders WHERE status='open' ORDER BY id"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _mark_order_filled(order_id: int) -> None:
+    with _connect() as con:
+        con.execute(
+            "UPDATE paper_orders SET status='filled', filled_at=? WHERE id=?",
+            (_now(), int(order_id)),
+        )
+
+
+def _oldest_long(user_id: int, symbol: str) -> dict | None:
+    with _connect() as con:
+        row = con.execute(
+            "SELECT * FROM paper_positions WHERE user_id=? AND symbol=? "
+            "AND side='long' AND status='open' ORDER BY id LIMIT 1",
+            (int(user_id), symbol.upper()),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+async def run_limit_check(fetcher=None) -> list[dict]:
+    """Исполнить лимитные ордера (paper), чья цена задета текущим рынком.
+
+    buy — при цене ≤ лимита (открывает лонг); sell — при цене ≥ лимита
+    (закрывает старейший лонг по лимитной цене). Возвращает события исполнения.
+    """
+    fetcher = fetcher or _default_price
+    orders = _all_open_orders()
+
+    prices: dict[str, float] = {}
+    events: list[dict] = []
+    for o in orders:
+        symbol = o["symbol"]
+        if symbol not in prices:
+            try:
+                prices[symbol] = await fetcher(symbol)
+            except Exception:  # noqa: BLE001
+                continue
+        price = prices.get(symbol)
+        if price is None:
+            continue
+        limit = float(o["limit_price"])
+        side = o["side"]
+
+        if side == "buy" and price <= limit:
+            pos = open_position(o["user_id"], symbol, "long", float(o["qty"]),
+                                limit, o["stop"], o["take"])
+            _mark_order_filled(o["id"])
+            events.append({"user_id": o["user_id"], "orderId": o["id"], "symbol": symbol,
+                           "side": "buy", "fill_price": limit, "qty": float(o["qty"]),
+                           "kind": "limit_fill", "position": pos})
+        elif side == "sell" and price >= limit:
+            lp = _oldest_long(o["user_id"], symbol)
+            if lp is None:
+                cancel_limit_order(o["user_id"], o["id"])
+                continue
+            closed = _close_row(o["user_id"], lp["id"], limit, "limit_sell")
+            _mark_order_filled(o["id"])
+            events.append({"user_id": o["user_id"], "orderId": o["id"], "symbol": symbol,
+                           "side": "sell", "fill_price": limit, "qty": float(o["qty"]),
+                           "kind": "limit_fill", "closed": closed})
+    return events
 
 
 async def run_paper_check(fetcher=None) -> list[dict]:

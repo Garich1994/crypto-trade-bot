@@ -1,12 +1,16 @@
 from agents.paper_agent.paper import (
     START_BALANCE,
     PaperError,
+    add_limit_order,
+    cancel_limit_order,
     close_position,
     get_balance,
     get_position,
+    open_limit_orders,
     open_position,
     portfolio,
     reset,
+    run_limit_check,
     run_paper_check,
     set_db_path,
 )
@@ -21,5 +25,9 @@ __all__ = [
     "close_position",
     "reset",
     "run_paper_check",
+    "add_limit_order",
+    "cancel_limit_order",
+    "open_limit_orders",
+    "run_limit_check",
     "set_db_path",
 ]
